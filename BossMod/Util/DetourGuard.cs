@@ -28,8 +28,8 @@ public static class DetourGuard
     private static readonly ConcurrentDictionary<string, SiteState> _sites = [];
 
     /// <summary>
-    /// 在 detour 的 catch 區塊裡呼叫。節流地記一行 Information 級診斷（使用者跑 LogLevel 2，
-    /// Debug/Verbose 收不到），然後靜靜返回 —— 呼叫端必須繼續呼叫 Original。
+    /// 在 detour 的 catch 區塊裡呼叫。節流地記一行 Information 級診斷（使用者跑 LogLevel 1，
+    /// 盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒），然後靜靜返回 —— 呼叫端必須繼續呼叫 Original。
     /// </summary>
     /// <param name="site">出事的 detour 名稱，用 nameof() 傳。</param>
     /// <param name="ex">攔下來的受管理例外。</param>

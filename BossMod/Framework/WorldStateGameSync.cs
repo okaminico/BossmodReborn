@@ -570,7 +570,7 @@ sealed class WorldStateGameSync : IDisposable
     // 兩支的特徵碼各自唯一命中,函式語意也正確 —— 逐格比對 EntityId(+0x400)/ContentId(+0x3F8)、
     // 上限取 MemberCount(+0x7FDC)、步長 0x490,全部與 FFXIVClientStructs 的宣告相符。
     // 既然沒有離線證據,就不在每幀路徑上照抄那個改寫;改成在「真的發生」時留一筆 Information,
-    // 把不可證的假設變成可判定的問題(使用者跑 LogLevel 2,收得到 Information)。
+    // 把不可證的假設變成可判定的問題(使用者跑 LogLevel 1,收得到 Information)。
     private bool _reportedPartyLookupMismatch;
 
     private unsafe void ReportPartyLookupMismatch(GroupManager.Group* group, PartyState.Member player, PartyMember* member)
@@ -891,7 +891,7 @@ sealed class WorldStateGameSync : IDisposable
 
             // 每次（重新）進入深牢印一次結構基底位址：台服的 InstanceContentDeepDungeon 欄位偏移
             // 是照國際服 CS 定義推的，對不上時整份深牢資料會是垃圾值而不會拋例外。要使用者回報這行
-            // 才查得出來，所以走 Information（使用者的 LogLevel 是 2，Debug/Verbose 收不到）。
+            // 才查得出來，所以走 Information（使用者的 LogLevel 是 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒）。
             // 📌 一次進場只印一行，不是每幀——放心留在正式版。
             if (fullUpdate || !_loggedDeepDungeonBase)
             {
@@ -1034,7 +1034,7 @@ sealed class WorldStateGameSync : IDisposable
             // 「地圖上的大房間到底有沒有寶箱，是遊戲根本沒送、還是我們畫丟了」——
             // 這是唯一能離線分辨的量測，所以印遊戲送過來的**原始** (Type,Room) 與 25 格 MapData。
             // 節流：進場、換層，以及「非空寶箱數變多」時各一次（開箱只會變少，不會刷版面）。
-            // 走 Information，因為要靠使用者的 log 回報才看得到（LogLevel 2）。
+            // 走 Information，因為要靠使用者的 log 回報才看得到（LogLevel 1）。
             if (fullUpdate || dd->Floor != _ddDiagFloor || nonEmptyChests > _ddDiagChestCount)
             {
                 var newFloor = fullUpdate || dd->Floor != _ddDiagFloor;
@@ -1117,7 +1117,7 @@ sealed class WorldStateGameSync : IDisposable
     /// 把上一層的房間位置普查倒成一行 log。
     /// </summary>
     /// <remarks>
-    /// 🔴 走 <c>Information</c>：這是要靠使用者回報才看得到的量測（使用者的 LogLevel 是 2）。
+    /// 🔴 走 <c>Information</c>：這是要靠使用者回報才看得到的量測（使用者的 LogLevel 是 1）。
     /// 一層只印一行，所以量很小。
     /// <para>
     /// 每一格印的是「樣本數／平均位置／半幅」。半幅是拿來判斷這一格的樣本到底散得多開——

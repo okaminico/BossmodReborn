@@ -271,7 +271,7 @@ public sealed class DeepDungeonAI : AIBase
             return;
 
         RangedAttackerOIDs.Add(oid);
-        // 使用者跑 LogLevel 2，要他回報得到的等級才有意義；一個 OID 只印一次
+        // 使用者跑 LogLevel 1，要他回報得到的等級才有意義；一個 OID 只印一次
         Service.Logger.Information($"[DD kite] OID {oid:X} 在近戰距離外仍以自動攻擊命中玩家 {n} 次，本次探索對它停用風箏。");
     }
 

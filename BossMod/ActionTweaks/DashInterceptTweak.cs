@@ -107,7 +107,7 @@ public sealed class DashInterceptTweak
                     break;
             }
         }
-        // 走 Information：使用者的 LogLevel 是 2，而這行是「涵蓋了幾顆」的唯一憑據
+        // 走 Information：使用者的 LogLevel 是 1，而這行是「涵蓋了幾顆」的唯一憑據
         Service.Logger.Information($"[BMR][位移攔截] 位移技清單建立完成：共 {_dashActions.Count} 顆（衝向目標 {toTarget}、地面指定 {toGround}、定距離 {fixedDist}、以目標為基準後跳 {backdash}）。地面指定型在 UseAction 這一關拿不到座標，一律不攔。");
     }
 

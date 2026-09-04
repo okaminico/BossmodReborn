@@ -622,7 +622,7 @@ public abstract class AutoClear : ZoneModule
     /// 🔴 節流靠 <see cref="Minimap.ChestDiagSignature"/>：<see cref="DrawExtra"/> 每幀都跑，
     /// 沒有節流會每秒刷幾十行。簽章相同時連字串都不會組出來——比對的只是一個 ulong。
     /// </para>
-    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 2，Debug/Verbose 收不到。
+    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒。
     /// </remarks>
     private void LogChestDiagnostic(Minimap minimap)
     {
@@ -829,7 +829,7 @@ public abstract class AutoClear : ZoneModule
     /// </summary>
     /// <remarks>
     /// ⚠️ 沒有這個旗標的話，失敗分支會<b>每 100ms 印一行</b>（＝每秒 10 行）。
-    /// 使用者跑 LogLevel 2，這些是 <c>Information</c>，會真的灌進他的 log 檔裡把別的線索淹掉。
+    /// 使用者跑 LogLevel 1，這些是 <c>Information</c>，會真的灌進他的 log 檔裡把別的線索淹掉。
     /// 一串連續失敗只值得講一次；狀態一有變化（接手成功／還原成功／不再想暫停）就清掉，
     /// 下次再壞會重新講。
     /// </remarks>
@@ -1798,7 +1798,7 @@ public abstract class AutoClear : ZoneModule
     /// 把「強制趕路鍵被按下／放開」講出來。
     /// </summary>
     /// <remarks>
-    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 2。這一行的用途是讓「我按著鍵怎麼還是不動」
+    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 1。這一行的用途是讓「我按著鍵怎麼還是不動」
     /// 這種回報能立刻分辨出「鍵根本沒被認到」與「認到了但別的東西擋住」。
     /// 🔴 只在翻轉時印 —— 這支每幀都會被呼叫到。
     /// </remarks>
@@ -3309,7 +3309,7 @@ public abstract class AutoClear : ZoneModule
             _coordGateLoggedReason = reason;
 
             var face = FaceName();
-            // 要使用者回報才查得出台服座標對不對，所以走 Information（使用者的 LogLevel 是 2）。
+            // 要使用者回報才查得出台服座標對不對，所以走 Information（使用者的 LogLevel 是 1）。
             if (state == RoomCoordState.Unknown)
             {
                 // Unknown 時 ScoreFace 沒有交出任何數字，所以另外補算「本人其實離哪一間最近」。

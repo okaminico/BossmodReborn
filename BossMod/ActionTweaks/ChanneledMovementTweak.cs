@@ -135,7 +135,7 @@ public sealed class ChanneledMovementTweak
             if (!_statusSeen)
             {
                 _statusSeen = true;
-                // 使用者跑 LogLevel 2，要他看得到才有意義；這一行是「封鎖真的接上了」的唯一離線證據。
+                // 使用者跑 LogLevel 1，要他看得到才有意義；這一行是「封鎖真的接上了」的唯一離線證據。
                 Service.Logger.Information($"[Channel] 引導技 {_actionId} 的狀態 {_statusId} 已確認在身上，移動封鎖生效。");
             }
             return true;
