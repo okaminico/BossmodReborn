@@ -3,8 +3,8 @@
     "Author": "okaminico (based on ffxiv-tc-port's fork of BossMod Reborn)",
     "Name": "Bossmod Reborn",
     "InternalName": "BossModReborn",
-    "AssemblyVersion": "7.15.0.66",
-    "Description": "提供 Boss 戰雷達、自動循環、冷卻計劃與 AI 功能，幫助您輕鬆應對各種 Boss 機制。\n\n本版本同步上游更新：新增 4 個舊 Shadowbringers 極神模組（Titania/Innocence/Hades/Warrior of Light）與新手指南多個模組；另含本 fork 專屬的極月讀(The Wreath of Snakes Extreme)模組，已修正滿月/新月站位機制沒有畫面警示的問題。",
+    "AssemblyVersion": "7.15.0.67",
+    "Description": "提供 Boss 戰雷達、自動循環、冷卻計劃與 AI 功能，幫助您輕鬆應對各種 Boss 機制。\n\n本版本同步上游更新：新增 4 個舊 Shadowbringers 極神模組（Titania/Innocence/Hades/Warrior of Light）與新手指南多個模組；另含本 fork 專屬的極月讀(The Wreath of Snakes Extreme)模組，已修正 boss OID 錯誤導致模組完全沒載入的問題，滿月/新月站位機制已用實機 replay 驗證正確，其餘機制的技能資料仍待重新核對。",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/okaminico/BossmodReborn",
     "DalamudApiLevel": 13,
@@ -20,8 +20,8 @@
     "IconUrl": "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/icons/BossModReborn.png",
     "Punchline": "不再因副本機制失誤（台服修正版，新增 E4S 泰坦、極月讀模組）",
     "AcceptsFeedback": true,
-    "DownloadLinkInstall": "https://github.com/okaminico/BossmodReborn/releases/download/BossModReborn-v7.15.0.66-twfix/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/okaminico/BossmodReborn/releases/download/BossModReborn-v7.15.0.66-twfix/latest.zip",
-    "Changelog": "修正極月讀滿月/新月站位機制：狀態 ID 已用實機截圖確認正確，但原本只餵給 AI 自動走位，畫面上完全沒有危險區警示——已補上畫面標示。另同步上游更新：新增 4 個舊極神模組（Titania/Innocence/Hades/Warrior of Light）與新手指南模組，E4S 泰坦改用上游版本（含正確台服 GroupID）。"
+    "DownloadLinkInstall": "https://github.com/okaminico/BossmodReborn/releases/download/BossModReborn-v7.15.0.67-twfix/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/okaminico/BossmodReborn/releases/download/BossModReborn-v7.15.0.67-twfix/latest.zip",
+    "Changelog": "修正極月讀 boss 本體 OID 寫錯（實機 replay 確認應為 0x2211，原本 0x2210），導致模組從頭到尾都沒載入過——不是機制沒抓到，是完全沒進場。滿月/新月站位機制的狀態 ID(1538/1539)已用同一份 replay 核對正確。⚠️ 其餘技能 ID 跟實測紀錄對不上，尚未重新核對，除了滿月/新月機制外其他提示暫不保證準確。另同步上游更新：新增 4 個舊極神模組（Titania/Innocence/Hades/Warrior of Light）與新手指南模組，E4S 泰坦改用上游版本。"
   }
 ]
