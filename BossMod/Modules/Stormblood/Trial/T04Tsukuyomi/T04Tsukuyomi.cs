@@ -184,6 +184,18 @@ sealed class MoonStatus(BossModule module) : BossComponent(module)
             }
         }
     }
+
+    // 🔴 之前這裡只有 AddAIHints，沒有 Draw()：只餵給 BossMod 自己的「AI 自動走位」，
+    // 手動操作、或當下移動權在別的模組（例如 AutoDuty 的預設集自動移動）手上時，
+    // 畫面上完全不會顯示哪一半是危險區——這正是玩家回報「沒有自動去躲」的成因。
+    // 這裡補上跟 AddForbiddenZone 完全對應的畫面警示，讓人眼也看得到。
+    public override void DrawArenaBackground(int pcSlot, Actor pc)
+    {
+        if (_eastSideDanger)
+            Arena.ZoneRect(new(Arena.Center.X + 20.5f, Arena.Center.Z), Arena.Center, 20f, Colors.Danger);
+        else if (_westSideDanger)
+            Arena.ZoneRect(Arena.Center, new(Arena.Center.X - 20.5f, Arena.Center.Z), 20f, Colors.Danger);
+    }
 }
 
 // Anti-twilight is a raidwide that marks the end of the waxing/ waning phases.
