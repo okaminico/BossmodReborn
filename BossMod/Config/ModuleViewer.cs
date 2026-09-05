@@ -93,6 +93,14 @@ public sealed class ModuleViewer : IDisposable
 
         foreach (var info in BossModuleRegistry.RegisteredModules.Values)
         {
+            // 這個服的 EXD 裡查不到群組名稱時，下面會長出一個名字只剩空白加後綴的空群組
+            // （台服沒有新月島，於是模組瀏覽器出現「 CE」「 FATE」這種標題），
+            // 使用者看得到卻點不出東西。這裡直接不把它畫進瀏覽器。
+            // 🔑 判準是「查表查到的名字是不是空」而不是寫死 id —— 該內容日後開放時自動恢復。
+            // 🔴 只是不顯示：模組本身照樣註冊在 BossModuleRegistry 裡，自動啟動的路徑完全不受影響。
+            if (!GroupContentAvailable(info))
+                continue;
+
             var groups = _groups[(int)info.Expansion, (int)info.Category];
             var (groupInfo, moduleInfo) = Classify(info);
             var groupIndex = groups.FindIndex(g => g.Info.Id == groupInfo.Id);
@@ -305,6 +313,50 @@ public sealed class ModuleViewer : IDisposable
     //private static IDalamudTextureWrap? GetIcon(uint iconId) => iconId != 0 ? Service.Texture?.GetIcon(iconId, Dalamud.Plugin.Services.ITextureProvider.IconFlags.HiRes) : null;
     public static string FixCase(ReadOnlySeString str) => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(str.ToString());
     public static string BNpcName(uint id) => FixCase(Service.LuminaRow<BNpcName>(id)!.Value.Singular);
+
+    /// <summary>
+    /// 這個模組所屬的群組，在目前這個服的 EXD 裡查不查得到名字。
+    /// </summary>
+    /// <remarks>
+    /// 查的是 <see cref="Classify"/> 對該 <c>GroupType</c> <b>實際使用的那張表</b>。
+    /// ⚠️ <b>不是</b> <c>BossModuleInfo.GroupType</c> 的註解 —— 兩者不一致：註解寫
+    /// <c>ForayFATE // group id is Fate row</c>，而 <see cref="Classify"/> 實際拿
+    /// <c>GroupID</c> 去查 <c>ContentFinderCondition</c>，<c>NameID</c> 才是 Fate 列。
+    /// <para>
+    /// 🔴 <c>RemovedUnreal</c> 是刻意排除的例外：那個型別的意思就是「這個內容已經從遊戲移除」，
+    /// 它的 CFC 列本來就是空的（不分服），而群組標題是寫死的「Removed Content」不會變成空白、
+    /// 模組名（BNpcName）也照樣查得到 —— 套上同一個判準會把三個一直正常顯示的群組弄不見。
+    /// </para>
+    /// <para>
+    /// 📌 反過來，標題寫死<b>但內容確實應該存在</b>的型別（<c>BaldesionArsenal</c>、
+    /// <c>CastrumLacusLitore</c>、<c>TheDalriada</c>、<c>TheForkedTowerBlood</c>）<b>要</b>判：
+    /// 它們空掉的時候標題不會露餡，光看畫面分不出「這個服沒有這個內容」還是「群組是空的」。
+    /// </para>
+    /// <para>
+    /// 📌 <c>Hunt</c>（GroupID 是 HuntRank 列舉值不是列 id）、<c>GoldSaucer</c>、<c>None</c>
+    /// 的群組標題都是常數或列舉名，永遠不會是空白，所以不判。
+    /// </para>
+    /// </remarks>
+    private static bool GroupContentAvailable(BossModuleRegistry.Info module) => module.GroupType switch
+    {
+        BossModuleInfo.GroupType.CFC or
+        BossModuleInfo.GroupType.MaskedCarnivale or
+        BossModuleInfo.GroupType.BaldesionArsenal or
+        BossModuleInfo.GroupType.CastrumLacusLitore or
+        BossModuleInfo.GroupType.TheDalriada or
+        BossModuleInfo.GroupType.TheForkedTowerBlood or
+        BossModuleInfo.GroupType.ForayFATE or
+        BossModuleInfo.GroupType.CriticalEngagement or
+        BossModuleInfo.GroupType.BozjaDuel or
+        BossModuleInfo.GroupType.EurekaNM => HasContentName(Service.LuminaRow<ContentFinderCondition>(module.GroupID)?.Name),
+        BossModuleInfo.GroupType.Quest => HasContentName(Service.LuminaRow<Quest>(module.GroupID)?.Name),
+        BossModuleInfo.GroupType.Fate => HasContentName(Service.LuminaRow<Fate>(module.GroupID)?.Name),
+        _ => true,
+    };
+
+    /// <summary>列不存在（<see langword="null"/>）或名稱是空字串，都算「這個服沒有這個內容」。</summary>
+    /// <remarks>台服的未實裝內容是「列在但每一欄全空」，不是整列缺席，所以兩種都要判。</remarks>
+    private static bool HasContentName(ReadOnlySeString? name) => name?.ToString().Length > 0;
 
     private (ModuleGroupInfo, ModuleInfo) Classify(BossModuleRegistry.Info module)
     {

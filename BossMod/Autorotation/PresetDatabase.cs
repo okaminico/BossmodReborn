@@ -95,7 +95,7 @@ public sealed class PresetDatabase
             // 載入當下沒有任何 manager 持有這些物件（建構期），就地改 Name 是安全的。
             p.Name = newName;
             ++renamed;
-            // 使用者跑 LogLevel 2，Information 才看得到
+            // 使用者跑 LogLevel 1，Information 才看得到
             Service.Logger.Information($"[BMR] 偵測到空名循環預設，已自動改名為「{newName}」。");
         }
         if (renamed > 0)
@@ -145,7 +145,7 @@ public sealed class PresetDatabase
                 return;
 
             File.Copy(_dbPath.FullName, backup.FullName);
-            // 使用者跑 LogLevel 2，要他看得到才有意義
+            // 使用者跑 LogLevel 1，要他看得到才有意義
             Service.Logger.Information(
                 $"[Autorotation] 循環預設資料庫已備份到 {backup.FullName}。" +
                 "循環框架改版會讓舊的預設內容失效、需要重新建立；這份是改版前的原檔，只會產生一次。");
@@ -183,7 +183,7 @@ public sealed class PresetDatabase
                 catch (Exception ex)
                 {
                     var name = jp.ValueKind == JsonValueKind.Object && jp.TryGetProperty(nameof(Preset.Name), out var jn) ? jn.ToString() : $"第 {index} 筆";
-                    // 使用者跑 LogLevel 2，Information 才看得到
+                    // 使用者跑 LogLevel 1，Information 才看得到
                     Service.Logger.Information($"[Autorotation] 循環預設「{name}」損毀，已略過（{file.Name} 裡其餘預設不受影響）: {ex.Message}");
                 }
             }

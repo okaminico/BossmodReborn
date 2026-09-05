@@ -340,7 +340,7 @@ sealed class IPCProvider : IDisposable
             //    必須在寫入前擋下。回傳 false 即失敗訊號(本端點回傳型別是 bool,呼叫端已在處理)。
             if (string.IsNullOrWhiteSpace(p.Name))
             {
-                // 使用者跑 LogLevel 2,要他看得到才有意義;具名說明是哪個 IPC 端點拒絕了什麼。
+                // 使用者跑 LogLevel 1,要他看得到才有意義;具名說明是哪個 IPC 端點拒絕了什麼。
                 Service.Logger.Information("[BMR] IPC Presets.Create 被拒:preset 名稱為空白。");
                 return false;
             }

@@ -7,6 +7,9 @@ namespace BossMod.Shadowbringers.Raid.E4STitan;
 [ModuleInfo(BossModuleInfo.Maturity.WIP,
     Contributors = "Community (cactbot data) + Claude",
     GroupType = BossModuleInfo.GroupType.CFC,
+    // 台服 ContentFinderCondition row 690 =「伊甸零式希望樂園 覺醒之章4」(內部名 n4g4_2)。
+    // NameID(BNpcName) 刻意留空:猜錯比不填更糟,等有實機錄影再補。
+    GroupID = 690u,
     PlanLevel = 80)]
 public class E4STitan : BossModule
 {

@@ -408,7 +408,7 @@ public sealed class PredictiveMitigation(RotationModuleManager manager, Actor pl
         => ActionUnlocked(upgraded) ? upgraded : basic;
 
     /// <summary>
-    /// 要使用者回報時看得到的診斷。刻意寫 <c>Information</c>（使用者跑 LogLevel 2，Debug/Verbose 收不到），
+    /// 要使用者回報時看得到的診斷。刻意寫 <c>Information</c>（使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒），
     /// 並且對「每一個技能各自」節流（外加每秒行數上限），否則每幀一行會把 log 灌爆。
     /// </summary>
     private void LogPush(ActionID action, ActionDamageType.Kind incoming)

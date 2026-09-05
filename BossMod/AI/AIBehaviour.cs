@@ -424,7 +424,7 @@ sealed class AIBehaviour(AIController ctrl, RotationModuleManager autorot, Prese
 
     #region 移動為什麼沒發生 —— 三個狀態轉換診斷
 
-    // 📌 三支都走 Information（使用者跑 LogLevel 2，Debug/Verbose 收不到），而且**只在狀態翻轉時記一行**：
+    // 📌 三支都走 Information（使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒），而且**只在狀態翻轉時記一行**：
     //    這些判斷每幀都會走到，每幀印等於把 log 洗掉。
     // 🔑 三行合起來可以把「角色不動」拆成互斥的三種原因，不需要實機旁觀就能定案：
     //      ① 預設集根本沒掛上（沒有主要目標）⇒ 自動移動模組整段不執行
@@ -479,7 +479,7 @@ sealed class AIBehaviour(AIController ctrl, RotationModuleManager autorot, Prese
     /// 2026-08-17 查「preset 開著卻不迴避」時就卡在這個分辨上：同一次 <c>Execute</c> 裡
     /// <see cref="LogMovementOwnership"/> 印了 114 行、<see cref="LogPresetGate"/> 0 行，
     /// 只能反推出是第 2 種，但無從得知是被哪個開關擋的。
-    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 2。只在翻轉時印。
+    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 1。只在翻轉時印。
     /// </remarks>
     private void LogPresetGateReachable(bool runs, bool forbidTargeting, bool cancelled)
     {
@@ -498,6 +498,9 @@ sealed class AIBehaviour(AIController ctrl, RotationModuleManager autorot, Prese
     }
 
     private bool _loggedYieldMovement;
+    /// <summary>兩個方向的長說明各印過了沒；印過之後只留短行。</summary>
+    private bool _explainedYieldMovement;
+    private bool _explainedTakeBackMovement;
 
     /// <summary>
     /// 把「AI 把移動讓給預設集的自動移動模組」講出來。
@@ -511,9 +514,22 @@ sealed class AIBehaviour(AIController ctrl, RotationModuleManager autorot, Prese
         if (yield == _loggedYieldMovement)
             return;
         _loggedYieldMovement = yield;
+        // 長說明只印第一次：翻轉本身是有用的訊號（實機兩天約 3,150 行），但每次都重印
+        // 整段兩百字的說明純粹是雜訊。兩個方向各記一個旗標，兩邊的說明都至少出現一次。
+        bool explain;
+        if (yield)
+        {
+            explain = !_explainedYieldMovement;
+            _explainedYieldMovement = true;
+        }
+        else
+        {
+            explain = !_explainedTakeBackMovement;
+            _explainedTakeBackMovement = true;
+        }
         Service.Logger.Information(yield
-            ? "[AI] 移動擁有權交給預設集的「自動移動」模組：本 AI 這段期間完全不設導航目標。若角色同時站著不動，代表接手的那一方也沒寫出移動方向。"
-            : "[AI] 移動擁有權回到 AI 自動走位：預設集裡的「自動移動」模組沒有舉手（不在預設集裡、Destination 軌設成 None、或它這一段算不出目的地而主動交還——後者上一行會有 [NormalMovement] 的說明）。");
+            ? (explain ? "[AI] 移動擁有權交給預設集的「自動移動」模組：本 AI 這段期間完全不設導航目標。若角色同時站著不動，代表接手的那一方也沒寫出移動方向。" : "[AI] 移動擁有權交給預設集的「自動移動」模組")
+            : (explain ? "[AI] 移動擁有權回到 AI 自動走位：預設集裡的「自動移動」模組沒有舉手（不在預設集裡、Destination 軌設成 None、或它這一段算不出目的地而主動交還——後者上一行會有 [NormalMovement] 的說明）。" : "[AI] 移動擁有權回到 AI 自動走位"));
     }
 
     /// <summary>建導航決策那一刻場上有幾個目標區；給下面那支診斷區分「沒人給方向」與「給了方向但算不出來」。</summary>
@@ -527,6 +543,11 @@ sealed class AIBehaviour(AIController ctrl, RotationModuleManager autorot, Prese
     /// <c>NavigationDecision.Build</c> 在最佳格就是玩家腳下時回傳 <c>Destination == null</c>，
     /// 而那有兩種完全不同的成因：<b>真的已經站在最好的位置</b>，或<b>目標區根本沒被 rasterize</b>
     /// （玩家格出了尋路視窗、或本地副本與存活 List 的 race）。有目標區卻回 null 就是後者的徵兆。
+    /// 🔴 2026-09-04 實機修正：上面最後那句判準寫太寬，而且「權重全 0 就是沒有 rasterize」
+    /// 也是錯的。六份實機 log 共 580 筆命中，分組之後是：317 筆玩家真的就站在最高權重格、
+    /// 20 筆是安全優先閘門（已畫上權重場＝否）—— 這 337 筆都是正常結果；
+    /// 189 筆已畫上權重場＝是、整張場卻還是 0（畫了等於沒畫）；54 筆場上有更高的格子卻回 null
+    /// —— 後面這 243 筆才是異常。判準見 <see cref="IsNaviStuck"/>。
     /// </remarks>
     private void LogNoDestination(bool evaluated, bool stuck)
     {
@@ -544,6 +565,27 @@ sealed class AIBehaviour(AIController ctrl, RotationModuleManager autorot, Prese
             ? $"[AI] 導航算不出目的地：丟進尋路時場上有 {_naviGoalZoneCount} 個目標區，尋路卻回報「已經在最佳位置」⇒ 這一段不會移動。{_naviDecision.DiagSummary()}"
             : "[AI] 導航恢復：尋路重新算得出目的地。");
     }
+
+    /// <summary>
+    /// 尋路回 <c>null</c> 是不是<b>真的</b>異常。
+    /// </summary>
+    /// <remarks>
+    /// 三個判準，任一成立就算異常：
+    /// ①玩家格根本不在尋路視窗內 ⇒ 目標區對他完全沒有作用。
+    /// ②目標區畫上去了，整張權重場卻還是 0（或更低）⇒ 畫了等於沒畫。
+    /// ③場上有權重更高的格子，尋路卻回 null ⇒ 明明有更好的位置卻不去。
+    /// 其餘情形（玩家格權重就是場上最高，而且那個最高是正的）都是<b>正確行為</b>，不該報。
+    /// 🔴 ②一定要帶上 <c>DiagGoalsRasterized</c>：沒有 rasterize 而權重全 0 是
+    /// 「詠唱中／玩家腳下即將被打到」的安全優先閘門（見 <c>NavigationDecision.Build</c>），
+    /// 那是刻意行為，不是異常（實機 20 筆）。只判權重是 0 會把它們一起報出來。
+    /// 📌 <c>Map.MaxPriority</c> 的初值就是 <c>0f</c>，所以②用 <c>&lt;= 0f</c> 是對
+    /// 「從來沒有被抬高過」的精確比對，不需要 epsilon —— 用寬的 epsilon 會把「玩家站在一個
+    /// 小的、真實存在的最高點」（實機看得到 0.10）誤報成異常。
+    /// </remarks>
+    private static bool IsNaviStuck(in NavigationDecision navi)
+        => !navi.DiagPlayerInWindow
+        || (navi.DiagGoalsRasterized && navi.DiagMaxPriority <= 0f)
+        || navi.DiagMaxPriority > navi.DiagPlayerPriority + 1e-4f;
 
     #endregion
 
@@ -635,7 +677,9 @@ sealed class AIBehaviour(AIController ctrl, RotationModuleManager autorot, Prese
             }
 
             // 只在「我方負責移動」時才有意義：讓位期間目的地本來就不該由這裡產生 ⇒ 那時是「沒問」不是「沒事」。
-            LogNoDestination(!yieldMovement, _naviDecision.Destination == null && _naviGoalZoneCount != 0);
+            // 收緊判準：只有「回 null」加「場上有目標區」還不夠。六份實機 log 的 580 筆命中裡，
+            // 337 筆是玩家真的就站在最高權重格、或是安全優先閘門，兩種都是正常結果。
+            LogNoDestination(!yieldMovement, _naviDecision.Destination == null && _naviGoalZoneCount != 0 && IsNaviStuck(in _naviDecision));
 
             ctrl.NaviTargetPos = !yieldMovement && WorldState.CurrentTime >= _navStartTime && mustMoveNow ? _naviDecision.Destination : null;
             ctrl.NaviTargetVertical = master != player ? master.PosRot.Y : null;

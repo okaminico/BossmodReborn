@@ -529,7 +529,7 @@ public sealed class NormalMovement : RotationModule
     /// 🔑 這一行是「角色站著不動」唯一的離線證據，而不動有四種互斥成因，外觀完全相同
     /// （尋路回 <c>null</c>、不報錯、連標線都不畫）——四種的判別交給
     /// <see cref="NavigationDecision.DiagSummary"/>，那裡有本次尋路真正看到的數字。
-    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 2，Debug/Verbose 收不到。
+    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒。
     /// 🔴 只在翻轉時印。這支每幀都會被呼叫到。
     /// </remarks>
     private void LogNoDestination(bool stuck, in NavigationDecision navi, float heldFor)
@@ -580,7 +580,7 @@ public sealed class NormalMovement : RotationModule
     /// 乘上特徵碼掃到的 <c>CalculateMovementSpeedMultiplier</c>；這一行印的是<b>相乘之後的原始值</b>。
     /// 🔑 偏移修對之後這兩行應該<b>幾乎不再出現</b>；<b>還在洗</b>就是「偏移假設不成立」的自證，
     /// 不需要再去猜別的成因。
-    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 2。
+    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 1。
     /// 🔴 這支每幀都會被呼叫到 ⇒ 翻轉閘門與時間閘門<b>兩道都要過</b>才准寫。
     /// </remarks>
     private void LogSpeedSubstitution(bool substituted, float rawSpeed)
@@ -621,7 +621,7 @@ public sealed class NormalMovement : RotationModule
     /// 把「貪輸出的目標點跑出尋路視窗、因此這一段不做距離調整」講出來。
     /// </summary>
     /// <remarks>
-    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 2，Debug/Verbose 收不到，而這一行正是
+    /// 📌 走 <c>Information</c>：使用者的 LogLevel 是 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒，而這一行正是
     /// 「自動移動不走」到底是不是這個成因的唯一離線證據。
     /// 🔴 只在翻轉時印。這支每幀都會被呼叫到，每幀印等於把 log 洗掉。
     /// </remarks>

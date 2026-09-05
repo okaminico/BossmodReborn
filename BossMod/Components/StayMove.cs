@@ -5,10 +5,11 @@
 public class StayMove(BossModule module, double maxTimeToShowHint = 1e3d) : BossComponent(module)
 {
     public enum Requirement { None, Stay, Stay2, Move }
-    public readonly struct PlayerState(Requirement requirement, DateTime activation, int priority = 0)
+    public readonly struct PlayerState(Requirement requirement, DateTime activation, int priority = 0, DateTime finish = default)
     {
         public readonly Requirement Requirement = requirement;
         public readonly DateTime Activation = activation;
+        public readonly DateTime Finish = finish;
         public readonly int Priority = priority;
     }
 

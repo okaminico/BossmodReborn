@@ -4,6 +4,9 @@ public static class BossModuleInfo
 {
     public enum Maturity
     {
+        [PropertyDisplay("Dummy modules, dev work only.")]
+        Dummy,
+
         [PropertyDisplay("Work in progress; might be incomplete or have severe bugs")]
         WIP,
 
@@ -11,7 +14,10 @@ public static class BossModuleInfo
         Contributed,
 
         [PropertyDisplay("First-party module created by the plugin author, or a third-party contributed module that was thoroughly verified and effectively taken over by the plugin author")]
-        Verified
+        Verified,
+
+        [PropertyDisplay("Module that has been verified to work well with AI enabled.")]
+        AISupport
     }
 
     public enum Expansion
@@ -49,6 +55,9 @@ public static class BossModuleInfo
         PVP,
         MaskedCarnivale,
         GoldSaucer,
+        HallOfTheNovice,
+        Quantum,
+        Advanced,
 
         Count
     }

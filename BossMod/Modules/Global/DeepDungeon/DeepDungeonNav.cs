@@ -33,7 +33,7 @@ static class DeepDungeonNav
     // 🔴 但 **vnavmesh 自己的處理常式擲出來的例外不是 IpcError** —— Dalamud 的 CallGate
     //    是直接呼叫對方註冊的委派，對方內部炸掉會原樣往上冒。這些呼叫點在
     //    `Update()` 與 ImGui 繪製途中，讓它冒出去會打斷 BMR 整個 frame。
-    //    所以額外接一層 Exception，並用 Information 記下來（使用者跑 LogLevel 2，
+    //    所以額外接一層 Exception，並用 Information 記下來（使用者跑 LogLevel 1，
     //    要他回報得到的等級才有意義）。
     private static void LogUnexpected(string endpoint, Exception ex)
         => Service.Logger.Information($"[DD nav] vnavmesh.{endpoint} 擲出非 IPC 例外（已忽略，不影響 BMR）: {ex}");

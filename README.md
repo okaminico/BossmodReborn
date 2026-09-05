@@ -1,33 +1,23 @@
-**BossmodReborn**
+# BossmodReborn
 
-![Github Latest Releases](https://img.shields.io/github/downloads/FFXIV-CombatReborn/BossmodReborn/latest/total.svg?style=for-the-badge)
+戰鬥機制輔助插件，社群接手維護的 Bossmod 分支，提供即時戰鬥指引以簡化
+複雜的團隊戰／討伐戰機制。
 
-BossmodReborn is a community-driven fork of the original Bossmod plugin for Final Fantasy XIV. It aims to enhance your gameplay by providing real-time tactical guidance and tools that simplify complex raid mechanics. This tool is invaluable for optimizing in-game strategies, ensuring precise positioning, and enhancing overall raid performance.
+原作者：[FFXIV-CombatReborn](https://github.com/FFXIV-CombatReborn/BossmodReborn)
 
-## Features
+## 功能
 
-- **Advanced Radar System**: A sophisticated on-screen map displaying player and boss positions, imminent AOEs, and other crucial mechanics. This system helps players visualize the battlefield, simplifying decision-making processes.
-- **Mechanic Descriptors**: Near the radar, you’ll find clear, concise descriptions of upcoming mechanics, global hints for resolving current challenges, and personalized player advice to optimize your response to each situation.
-- **Cooldown Planner**: A tool for meticulous planning of ability usage, ensuring optimal timing for cooldowns and abilities in coordination with raid strategies.
-- **User-Friendly Interface**: Designed with accessibility in mind with a wonderful module viewer by Croizat, the interface is intuitive, allowing players of all skill levels to benefit from the plugin.
-- **Regular Updates**: Committed to staying current with the latest game patches, class updates, and community feedback. PRs will be reviewed, tested, and approved.
+- **雷達**：螢幕小地圖顯示玩家位置、Boss 位置、即將到來的各種 AOE 及其他
+  機制，可在「支援的戰鬥」分頁查看並個別啟用支援的頭目戰。
+- **自動循環**：以最佳能力執行輸出循環，可在「自動循環預設」分頁建立與
+  管理自訂預設。
+- **冷卻計劃器**：為支援的頭目戰規劃技能施放時機，僅在沒有啟用任何自動
+  循環預設時取代自動循環。
+- **AI**：依頭目模組判定的安全區域自動移動角色以閃避機制，可與其他插件
+  掛接以自動化整場戰鬥；不建議在與陌生玩家一同遊玩時使用。
+- **機制提示**：雷達旁提供即將發生的機制說明、解法提示與個人化建議。
+- **模組檢視器**：由 Croizat 製作，瀏覽所有支援頭目戰的機制模組。
 
-## Want to contribute?
+## 分頁
 
-- Create a fork
-- Make your changes
-- Test the changes
-- Create a PR and point it to main
-
-## Localization
-
-UI strings can be localized via `Loc.T("Key", "English fallback")` (see [BossMod/Util/Loc.cs](BossMod/Util/Loc.cs)), backed by per-language JSON files in `BossMod/loc/` (e.g. `tw.json`). Missing keys/languages fall back to the English text passed as the second argument, so translations can be added incrementally.
-
-## Build versioning
-
-The build number (last segment of `<Version>` in [BossMod/BossModReborn.csproj](BossMod/BossModReborn.csproj)) is auto-incremented after every build by [BossMod/increment_version.ps1](BossMod/increment_version.ps1). This is expected — a modified `.csproj` after a local build is usually just this bump, not a manual edit.
-
-## Fork for CN client
-- A fork for players on the CN client can be found on https://github.com/44451516-ff14/BossmodRebornCN.
-- It is not directly supported by the Combat Reborn Team, so any bugs exclusive to that fork need to be fixed by the fork maintainer.
-- Bugs that likely affect both BossmodReborn and the CN fork can still be reported to the Combat Reborn Team.
+- 設定、支援的戰鬥、自動循環預設、斜線指令、關於。

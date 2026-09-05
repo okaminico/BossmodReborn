@@ -1,3 +1,4 @@
+# 2026-09-05 repo 重建(切斷 fork 網路)後,這個 workflow 需要一次 push 才會重新註冊。
 name: Build Check
 
 on:
