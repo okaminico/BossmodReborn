@@ -35,7 +35,7 @@ public enum AID : uint
     TsukiNoMaiogi = 11245, // DancingFan->self, 5.0s cast, range 10 circle
     SteelOfTheUnderworld = 11239, // Tsukuyomi->self, 3.0s cast, range 40+R 90.000-degree cone
     _Weaponskill_ = 11200, // Tsukuyomi->self, no cast, single-target
-    Reprimand = 11234, // Tsukuyomi->self, 4.0s cast, range 100 circle
+    Reprimand = 11194, // 實機 replay 確認：'責難' Tsukuyomi->self, 4.0s cast, range 100 circle
     MidnightHaze = 11240, // Tsukuyomi->location, 4.0s cast, single-target
     MidnightHaze1 = 11241, // Tsukuyomi->location, no cast, single-target
     Nightfall1 = 11236, // Tsukuyomi->self, 4.0s cast, single-target
@@ -48,8 +48,8 @@ public enum AID : uint
     _AutoAttack_Attack3 = 11858, // SpecterOfAsahi->Yotsuyu, no cast, single-target
     Concentrativity = 11247, // SpecterOfZenos->self, no cast, range 100 circle
     UnmovingTroika = 11435, // SpecterOfZenos->self, no cast, range 9+R ?-degree cone
-    UnmovingTroika1 = 11436, // Specter->self, 1.7s cast, range 9+R ?-degree cone
-    UnmovingTroika2 = 11437, // Specter->self, 2.1s cast, range 9+R ?-degree cone
+    UnmovingTroika1 = 11433, // 實機 replay 確認：'不動三段' Specter->self, 1.4s cast, range 9+R ?-degree cone
+    UnmovingTroika2 = 11434, // 實機 replay 確認：'不動三段' Specter->self, 1.8s cast, range 9+R ?-degree cone
     _Weaponskill_2 = 11210, // SpecterOfZenos->self, 3.0s cast, single-target
     _Weaponskill_3 = 11211, // SpecterOfGosetsu->location, no cast, width 8 rect charge
     Dispersivity = 11248, // Specter->self, no cast, range 100 circle
@@ -57,7 +57,7 @@ public enum AID : uint
     Nightbloom1 = 11438, // Yotsuyu->self, no cast, single-target
     Nightbloom2 = 11440, // Specter->self, 4.0s cast, range 60 circle
     Selenomancy = 11249, // Tsukuyomi->self, 4.0s cast, single-target
-    LunarHalo = 11379, // Moonlight->self, 4.0s cast, range ?-15 donut
+    LunarHalo = 11222, // 實機 replay 確認：'百月光' Moonlight->self, 5.7s cast, range ?-15 donut
     Antitwilight = 11256, // Tsukuyomi->self, 5.0s cast, range 100 circle
     _Weaponskill_5 = 11261, // Tsukuyomi->self, no cast, single-target
     DanceOfTheDead = 11551, // Specter->self, no cast, single-target
