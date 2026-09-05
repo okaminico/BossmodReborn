@@ -3,7 +3,13 @@ namespace BossMod.Stormblood.Trial.T04Tsukuyomi;
 public enum OID : uint
 {
     Actor1ea1a1 = 0x1EA1A1, // R2.000, x?, EventObj type : Helpers during spectres
-    Tsukuyomi = 0x2210, // R3.250, x?
+    // 🔴 實機 replay 確認：真正的 boss OID 是 0x2211，原始移植資料寫成 0x2210（差 1）。
+    // 這個欄位是 PrimaryActorOID，錯了會讓整個模組從頭到尾都不會載入——不是某個機制沒抓到，
+    // 是完全沒有進場。已用 2026-09-05 的實機 replay log 逐行核對過。
+    // 其餘 OID／AID（技能 ID）目前仍是舊移植資料，跟這場實測的施放紀錄幾乎對不上，尚未重新核對，
+    // 不要把它們當作驗證過的資料；只有 SID.Moonlit(1538)／SID.Moonshadowed(1539) 已用同一份
+    // replay 的 STA+ 紀錄核對過確實正確。
+    Tsukuyomi = 0x2211, // R3.250, x?
     Specter = 0x18D6, // R0.500, x?, mixed types : Helper
     DancingFan = 0x2241, // R1.600, x?
     MidnightHaze = 0x2242, // R1.000, x? : Cloud adds
