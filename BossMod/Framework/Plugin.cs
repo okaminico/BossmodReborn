@@ -174,30 +174,64 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
-        Service.Condition.ConditionChange -= OnConditionChanged;
-        _multibox.Dispose();
-        _wndChangelog.Dispose();
-        _wndDebug.Dispose();
-        _wndRotation.Dispose();
-        _wndReplay.Dispose();
-        _wndZone.Dispose();
-        _wndBossmodHints.Dispose();
-        _wndBossmod.Dispose();
-        _configUI.Dispose();
-        _dtr.Dispose();
-        _ipc.Dispose();
-        _ai.Dispose();
-        _rotation.Dispose();
-        _wsSync.Dispose();
-        _amex.Dispose();
-        _movementOverride.Dispose();
-        _hintsBuilder.Dispose();
-        _zonemod.Dispose();
-        _bossmod.Dispose();
-        ActionDefinitions.Instance.Dispose();
-        CommandManager.RemoveHandler("/bmr");
-        FlushPendingConfigSave(); // 放在最後,連拆除過程中(例如回放清單)產生的改動也一併寫出去
-        GarbageCollection();
+        // 逐一隔離每一步拆除:任何一步擲出受管理例外時只記一行,然後繼續下一步。
+        // 原本是 24 個毫無防護的呼叫排成一串 —— 第一個擲例外的那個會讓它後面的全部不執行,
+        // 而後面那些包含解除原生 hook、退訂 Condition 事件、交回 vnavmesh 的移動租約,
+        // 以及把還沒寫出去的設定改動沖到磁碟。
+        // 📌 代價不只是「漏掉」:Dispose 只要擲一次例外,Dalamud 就把外掛標成 UnloadError
+        //    (LocalPlugin.UnloadAsync),此後這個遊戲行程裡就再也不能卸載/重載它;
+        //    而 loader 照樣會被釋放 —— 沒解除的 hook 就留在原生碼上指向已卸載的組件。
+        // 🔴 這**不是** AccessViolationException 的防護。AVE 在 .NET Core 是
+        //    corrupted-state exception,catch(Exception) 與這裡的隔離對它完全無效;
+        //    這裡處理的只有受管理例外。
+        // 🔴 順序與原本逐字相同,不要重排 —— 後面的子系統可能還在讀前面的狀態。
+        SafeTeardown("Condition.ConditionChange", () => { Service.Condition.ConditionChange -= OnConditionChanged; });
+        SafeTeardown("_multibox", () => _multibox.Dispose());
+        SafeTeardown("_wndChangelog", () => _wndChangelog.Dispose());
+        SafeTeardown("_wndDebug", () => _wndDebug.Dispose());
+        SafeTeardown("_wndRotation", () => _wndRotation.Dispose());
+        SafeTeardown("_wndReplay", () => _wndReplay.Dispose());
+        SafeTeardown("_wndZone", () => _wndZone.Dispose());
+        SafeTeardown("_wndBossmodHints", () => _wndBossmodHints.Dispose());
+        SafeTeardown("_wndBossmod", () => _wndBossmod.Dispose());
+        SafeTeardown("_configUI", () => _configUI.Dispose());
+        SafeTeardown("_dtr", () => _dtr.Dispose());
+        SafeTeardown("_ipc", () => _ipc.Dispose());
+        SafeTeardown("_ai", () => _ai.Dispose());
+        SafeTeardown("_rotation", () => _rotation.Dispose());
+        SafeTeardown("_wsSync", () => _wsSync.Dispose());
+        SafeTeardown("_amex", () => _amex.Dispose());
+        SafeTeardown("_movementOverride", () => _movementOverride.Dispose());
+        SafeTeardown("_hintsBuilder", () => _hintsBuilder.Dispose());
+        SafeTeardown("_zonemod", () => _zonemod.Dispose());
+        SafeTeardown("_bossmod", () => _bossmod.Dispose());
+        SafeTeardown("ActionDefinitions.Instance", () => ActionDefinitions.Instance.Dispose());
+        SafeTeardown("CommandManager /bmr", () => CommandManager.RemoveHandler("/bmr"));
+        SafeTeardown("FlushPendingConfigSave", FlushPendingConfigSave); // 放在最後,連拆除過程中(例如回放清單)產生的改動也一併寫出去
+        SafeTeardown("GarbageCollection", GarbageCollection);
+    }
+
+    // 拆除用的逐步隔離:一步失敗就記一行並繼續下一步,絕不讓例外傳出 Dispose。
+    // 🔴 只對受管理例外有效 —— AccessViolationException 是 corrupted-state exception,
+    //    catch(Exception) 攔不到,不要把這個 helper 當成原生層的防護。
+    // 診斷寫 Error:拆除失敗是真的故障,而且要能在使用者那份幾十萬行 Debug 的 log 裡看得見。
+    private static void SafeTeardown(string what, Action step)
+    {
+        try
+        {
+            step();
+        }
+        catch (Exception e)
+        {
+            try
+            {
+                Service.Logger.Error(e, $"[Dispose] 拆除「{what}」時擲出例外，已略過這一步、繼續釋放其餘子系統。");
+            }
+            catch
+            {
+                // 連寫 log 都失敗時也不能中斷拆除 —— 這裡已經沒有別的地方可以回報了。
+            }
+        }
     }
 
     // 設定存檔去抖動:設定 UI 用的是 DragFloat/DragInt/ColorEdit,這類控制項在「拖曳期間每一幀」都會回傳 true

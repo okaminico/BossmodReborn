@@ -64,6 +64,30 @@ static class DeepDungeonNav
     private static readonly Lazy<ICallGateSubscriber<bool, object>?> PathSetMovementAllowed =
         new(() => Service.PluginInterface?.GetIpcSubscriber<bool, object>("vnavmesh.Path.SetMovementAllowed"));
 
+    // ── 移動租約（vnavmesh v7.20.0.37 起才有的一組端點）─────────────
+    // 📌 提供端逐字對照（vnavmesh/IPCProvider.cs）：
+    //      RegisterFunc("Path.AcquireSuppression",       (string owner)             => Guid)
+    //      RegisterFunc("Path.ReleaseSuppression",       (Guid lease)               => bool)
+    //      RegisterFunc("Path.RenewSuppression",         (Guid lease)               => bool)
+    //      RegisterFunc("Path.SetLeasedMovementAllowed", (Guid lease, bool allowed) => bool)
+    //    ⚠️ vnavmesh 的 RegisterFunc<TRet, T1, …> 多載展開成 GetIpcProvider<T1, …, TRet>，
+    //       所以訂閱端型別參數的**最後一個**才是回傳型別，前面的是參數。
+    // 🔴 這四個端點的回傳全是**不可為 null 的值型別**，而且提供端保證永不回 null
+    //    （失敗回 Guid.Empty／false）。宣告成別的型別不會在編譯期被擋下來：
+    //    型別不同時 CallGate 會做 JSON 來回轉換而**靜默成功**，只有真的回 null 的那一次
+    //    才擲一個看起來與 IPC 完全無關的 NullReferenceException。這裡兩邊逐字相同。
+    private static readonly Lazy<ICallGateSubscriber<string, Guid>?> PathAcquireSuppression =
+        new(() => Service.PluginInterface?.GetIpcSubscriber<string, Guid>("vnavmesh.Path.AcquireSuppression"));
+
+    private static readonly Lazy<ICallGateSubscriber<Guid, bool>?> PathReleaseSuppression =
+        new(() => Service.PluginInterface?.GetIpcSubscriber<Guid, bool>("vnavmesh.Path.ReleaseSuppression"));
+
+    private static readonly Lazy<ICallGateSubscriber<Guid, bool>?> PathRenewSuppression =
+        new(() => Service.PluginInterface?.GetIpcSubscriber<Guid, bool>("vnavmesh.Path.RenewSuppression"));
+
+    private static readonly Lazy<ICallGateSubscriber<Guid, bool, bool>?> PathSetLeasedMovementAllowed =
+        new(() => Service.PluginInterface?.GetIpcSubscriber<Guid, bool, bool>("vnavmesh.Path.SetLeasedMovementAllowed"));
+
     private static readonly Lazy<ICallGateSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>?>?> NavPathfind =
         new(() => Service.PluginInterface?.GetIpcSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>?>("vnavmesh.Nav.Pathfind"));
 
@@ -246,6 +270,142 @@ static class DeepDungeonNav
         catch (Exception ex)
         {
             LogUnexpected("Path.SetMovementAllowed", ex);
+            return false;
+        }
+    }
+
+    /// <summary>向 vnavmesh 借移動租約的結果。</summary>
+    public enum SuppressionResult
+    {
+        /// <summary>
+        /// 這個 vnavmesh 沒有租約端點（版本比 v7.20.0.37 舊，或根本沒安裝）。
+        /// ⇒ 呼叫端要退回 <see cref="SetMovementAllowed"/> 那條舊路徑。
+        /// </summary>
+        NotSupported,
+
+        /// <summary>
+        /// 端點在，但這一次沒發租約給我們（多半是別的外掛只借不還，把租約數撐到上限）。
+        /// 🔴 <b>這種情況不可以退回舊路徑</b>：舊路徑寫的是全域開關，正是租約要消滅的東西。
+        /// </summary>
+        Refused,
+
+        /// <summary>借到了。</summary>
+        Acquired
+    }
+
+    /// <summary>租用者名字（＝我們的 InternalName）。vnavmesh 會把它寫進使用者的 log。</summary>
+    private const string LeaseOwner = "BossModReborn";
+
+    /// <summary>
+    /// 跟 vnavmesh 借一把「這段期間請你別動」的租約。
+    /// </summary>
+    /// <remarks>
+    /// 🔑 <b>租約是惰性的</b>：借到之後<b>還沒有壓住任何東西</b>（新租約對受控值「沒有意見」），
+    /// 要真的暫停必須接著呼叫 <see cref="SetLeasedMovementAllowed"/> 傳 <see langword="false"/>。
+    /// <para>
+    /// 🔑 <b>不需要記得還</b>：租期上限 5 分鐘，借用者當掉／被卸載／忘了放開，逾時 vnavmesh
+    /// 就自動還原成<b>使用者自己的值</b>（不是寫死的 <see langword="true"/>）並寫一行 Information
+    /// 指名是誰壓著。長工作要自己每 30 秒 <see cref="RenewSuppression"/> 一次。
+    /// </para>
+    /// </remarks>
+    public static SuppressionResult TryAcquireSuppression(out Guid lease)
+    {
+        lease = Guid.Empty;
+        try
+        {
+            if (PathAcquireSuppression.Value is not { } g)
+                return SuppressionResult.NotSupported;
+            var id = g.InvokeFunc(LeaseOwner);
+            if (id == Guid.Empty)
+                return SuppressionResult.Refused;
+            lease = id;
+            return SuppressionResult.Acquired;
+        }
+        catch (IpcError)
+        {
+            // 端點不存在（vnavmesh 太舊或沒安裝）——這是預期中的狀況，安靜地讓呼叫端走舊路徑。
+            return SuppressionResult.NotSupported;
+        }
+        catch (Exception ex)
+        {
+            // 🔑 這裡刻意也回 NotSupported 而不是 Refused：退回舊路徑＝「加租約之前的行為」，
+            //    而 Refused 會讓呼叫端一直重試、暫停鍵整段沒反應。壞掉時要落回能動的那一邊。
+            LogUnexpected("Path.AcquireSuppression", ex);
+            return SuppressionResult.NotSupported;
+        }
+    }
+
+    /// <summary>
+    /// 用租約押住移動開關。<paramref name="allowed"/> 傳 <see langword="false"/>＝
+    /// 「我這把要求別動」；傳 <see langword="true"/>＝「我這把不再要求別動」，
+    /// <b>不是</b>「我要求放行」——使用者自己在 vnavmesh 裡取消勾選的「Allow movement」蓋不掉。
+    /// </summary>
+    /// <returns><see langword="false"/>＝這把租約已經不在了（逾時被掃掉／vnavmesh 重載過）。</returns>
+    public static bool SetLeasedMovementAllowed(Guid lease, bool allowed)
+    {
+        try
+        {
+            return PathSetLeasedMovementAllowed.Value?.InvokeFunc(lease, allowed) ?? false;
+        }
+        catch (IpcError ex)
+        {
+            Service.Log($"[DD nav] vnavmesh.Path.SetLeasedMovementAllowed 失敗: {ex.Message}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            LogUnexpected("Path.SetLeasedMovementAllowed", ex);
+            return false;
+        }
+    }
+
+    /// <summary>續約（心跳）。</summary>
+    /// <remarks>
+    /// ⚠️ 續約間隔不可以接近租期：vnavmesh 的 Renew 第一件事是掃除過期租約，
+    /// 間隔接近租期時第一次心跳<b>必定</b>失敗（那不是競態，是每次都會發生）。
+    /// </remarks>
+    /// <returns>
+    /// <see langword="false"/>＝<b>這把租約已經不在了</b>，呼叫端必須重新
+    /// <see cref="TryAcquireSuppression"/>，<b>不可以當成續約成功</b>。
+    /// </returns>
+    public static bool RenewSuppression(Guid lease)
+    {
+        try
+        {
+            return PathRenewSuppression.Value?.InvokeFunc(lease) ?? false;
+        }
+        catch (IpcError ex)
+        {
+            Service.Log($"[DD nav] vnavmesh.Path.RenewSuppression 失敗: {ex.Message}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            LogUnexpected("Path.RenewSuppression", ex);
+            return false;
+        }
+    }
+
+    /// <summary>交回租約。</summary>
+    /// <remarks>
+    /// 🔑 交回失敗<b>不需要重試到成功</b>：租約最多再壓 5 分鐘就逾時，vnavmesh 會自己
+    /// 還原成使用者的值。這正是租約與舊路徑最大的差別——舊路徑還原失敗就是永久災情。
+    /// </remarks>
+    /// <returns><see langword="false"/>＝這把已經不在了（放開過或逾時），沒有事情要做。</returns>
+    public static bool ReleaseSuppression(Guid lease)
+    {
+        try
+        {
+            return PathReleaseSuppression.Value?.InvokeFunc(lease) ?? false;
+        }
+        catch (IpcError ex)
+        {
+            Service.Log($"[DD nav] vnavmesh.Path.ReleaseSuppression 失敗: {ex.Message}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            LogUnexpected("Path.ReleaseSuppression", ex);
             return false;
         }
     }

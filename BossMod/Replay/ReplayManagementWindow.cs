@@ -359,9 +359,28 @@ public sealed class ReplayManagementWindow : UIWindow
         _recordingManual = false;
         _recordingDuty = false;
         _recordingActiveModules = 0;
-        _recorder?.Dispose();
-        _recorder = null;
-        UpdateTitle();
+        // 🔴 _recorder.Dispose() 會 flush 並關檔(ReplayRecorder.Dispose -> _logger.Dispose ->
+        //    StreamWriter/BinaryWriter.Dispose),磁碟滿、路徑被移走之類的情況會擲 IOException。
+        //    原本擲了就會跳過下面兩行,留下一個「半套」狀態:_recorder 沒被清成 null
+        //    ⇒ IsRecording() 從此永遠是 true ⇒ StartRecording() 每次都早退,這個 session 再也
+        //    錄不了任何東西,而視窗標題還停在「錄製中」。(三個計數旗標倒是已經在上面清掉了,
+        //    所以自動錄製也不會自己重試。)
+        // 📌 用 finally 不是 catch:例外照樣往上拋,呼叫端(Draw 按鈕、OnZoneChange、
+        //    OnModuleDeactivation、/bmr replay off)看到的東西完全沒變,這裡只是把原本被跳過的
+        //    收尾補上 —— 把半套變整套,不吞任何例外。
+        // 📌 丟掉這個 recorder 是安全的:ReplayRecorder.Dispose 先做 _subscription.Dispose()
+        //    再做 _logger.Dispose(),所以擲例外的那一刻 WorldState 訂閱已經解掉了,
+        //    孤兒 recorder 不會再收到任何事件;沒關成功的檔案代號由 FileStream 的 finalizer 收。
+        try
+        {
+            _recorder?.Dispose();
+        }
+        finally
+        {
+            // 這一行不會擲例外,先做;UpdateTitle() 只是 Loc 查表 + string.Format。
+            _recorder = null;
+            UpdateTitle();
+        }
     }
 
     public void UpdateLogDirectory()

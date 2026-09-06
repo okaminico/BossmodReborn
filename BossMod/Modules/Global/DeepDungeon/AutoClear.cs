@@ -818,6 +818,11 @@ public abstract class AutoClear : ZoneModule
     /// 🔴 這個旗標就是「還原欠帳」的帳本：<b>只有</b>在 <see cref="DeepDungeonNav.SetMovementAllowed"/>
     /// 真的回報成功之後才准設為 true，否則會記到一筆我們其實沒欠的帳，
     /// 之後那次「還原」就變成把別人刻意關掉的開關硬打開。
+    /// <para>
+    /// 📌 這個旗標只說「我們有沒有接手」，<b>不說是用哪一條路接手的</b>——那要看
+    /// <see cref="_navPauseLease"/>：非 <see cref="Guid.Empty"/>＝走租約，
+    /// <see cref="Guid.Empty"/>＝走舊版 vnavmesh 的全域開關。
+    /// </para>
     /// </remarks>
     private bool _navPauseHeld;
 
@@ -837,6 +842,99 @@ public abstract class AutoClear : ZoneModule
 
     /// <summary>接手／還原失敗時的重試間隔。</summary>
     private const double NavPauseRetryMs = 100d;
+
+    /// <summary>
+    /// 我們跟 vnavmesh 借到的移動租約；<see cref="Guid.Empty"/>＝手上沒有租約
+    /// （＝沒接手，或接手走的是舊版 vnavmesh 那條全域開關的路）。
+    /// </summary>
+    /// <remarks>
+    /// 🔑 租約解掉的是「BMR 死在 <c>false</c> 上就永遠沒人還」這個結構性缺陷。舊路徑
+    /// <c>Path.SetMovementAllowed(false)</c> 是對 vnavmesh <b>全域</b>欄位的單向寫入，
+    /// 失效形式是它<b>靜默站著不動</b>（<c>Nav.Pathfind</c> 正常、<c>Path.IsRunning</c> 回
+    /// <see langword="true"/>、log 一個字都沒有）。租約有 5 分鐘的硬性上限，逾時 vnavmesh
+    /// 自動還原成<b>使用者自己的值</b>（不是寫死的 <c>true</c>），並寫一行 Information 指名是誰壓著。
+    /// </remarks>
+    private Guid _navPauseLease;
+
+    /// <summary>下一次該送續約心跳的時刻（<c>Environment.TickCount64</c> 座標系）。</summary>
+    /// <remarks>
+    /// 🔴 刻意<b>不用</b> <c>World.CurrentTime</c>：那是 frame 時間戳，在回放視窗裡會跳來跳去，
+    /// 而 vnavmesh 的租約到期時刻用的正是 <c>Environment.TickCount64</c>。兩邊同一個座標系，
+    /// 才不會出現「我以為續約了、對方其實早就把它掃掉」。
+    /// </remarks>
+    private long _navPauseRenewAtTick;
+
+    /// <summary>續約間隔（30 秒＝vnavmesh 租期 5 分鐘的十分之一，也就是它建議的 RenewIntervalHintMs）。</summary>
+    /// <remarks>
+    /// ⚠️ 間隔不可以接近租期：vnavmesh 的 Renew 第一件事是掃除過期租約，間隔接近租期時
+    /// 第一次心跳<b>必定</b>失敗——那不是競態，是每次都會發生。
+    /// </remarks>
+    private const long NavPauseRenewIntervalMs = 30_000L;
+
+    /// <summary>「這個 vnavmesh 沒有租約端點」這件事已經講過了（每個模組實例只講一次）。</summary>
+    private bool _navPauseLegacyLogged;
+
+    /// <summary>
+    /// 只保護 <see cref="_navPauseHeld"/>／<see cref="_navPauseLease"/>／
+    /// <see cref="_navPauseRenewAtTick"/> 這三個欄位。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>鎖內只准拍快照與寫回：不呼叫 IPC、不碰 ImGui、不做 I/O、不寫 log。</b>
+    /// IPC 端點跑在對方的執行緒上而且對方自己也持鎖，在我們的鎖裡呼叫它等於把兩把鎖串起來。
+    /// 📌 現況這三個欄位其實只有繪製執行緒（<c>Plugin.DrawUI</c> → <c>Update</c>）與
+    /// <c>Dispose</c> 會碰，但「憑證＋到期時間」這個形狀在艦隊裡已經以裸字典的形式壞過兩次，
+    /// 成本這麼低就先上鎖。
+    /// </remarks>
+    private readonly object _navPauseGate = new();
+
+    /// <summary>
+    /// 移動租約的心跳。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>必須在 <see cref="UpdateNavPause"/> 的每一條提早返回之前跑到。</b>
+    /// 對帳式的主體在「想暫停＝正握著」的穩態下每一幀都會提早 return，心跳擺在那之後
+    /// 等於永遠送不出去——而失效是<b>靜默</b>的：vnavmesh 在租期滿 5 分鐘時自己放開，
+    /// 使用者按著暫停鍵，角色卻突然開始走。
+    /// <para>
+    /// 🔑 續約回 <see langword="false"/> 代表<b>那把租約已經不在了</b>（逾時被掃掉，或 vnavmesh
+    /// 重載過），<b>不可以當成續約成功</b>。這裡只把帳本清掉，讓同一幀後面的對帳自然地
+    /// 重新借一把——而不是自己在這裡重借，免得兩個地方都在管接手。
+    /// </para>
+    /// <para>
+    /// 📌 一趟深牢可能遠超過 5 分鐘，但這支跟的是「暫停鍵按著多久」而不是「跑圖多久」：
+    /// 租約只在真的壓住移動的那段期間存在。即使如此仍然要續約——按著暫停鍵去泡茶
+    /// 是完全可能的，而逾時的表現正好是「角色自己走起來」。
+    /// </para>
+    /// </remarks>
+    private void RenewNavPauseLease()
+    {
+        Guid lease;
+        lock (_navPauseGate)
+        {
+            lease = _navPauseLease;
+            if (lease == Guid.Empty || Environment.TickCount64 < _navPauseRenewAtTick)
+                return;
+            // 先把下一次的時刻推後，免得續約失敗的那一幀之後變成每幀重送。
+            _navPauseRenewAtTick = Environment.TickCount64 + NavPauseRenewIntervalMs;
+        }
+
+        // 🔴 IPC 一律在鎖外呼叫（對方自己也持鎖）。
+        if (DeepDungeonNav.RenewSuppression(lease))
+            return;
+
+        lock (_navPauseGate)
+        {
+            // ⚠️ 只在帳本還指著同一把時才清，免得誤銷中途換過的新租約。
+            if (_navPauseLease != lease)
+                return;
+            _navPauseHeld = false;
+            _navPauseLease = Guid.Empty;
+            _navPauseRenewAtTick = 0L;
+        }
+
+        _navPauseNextTry = DateTime.MinValue;
+        Service.Logger.Information($"[DD] 按住暫停：移動租約 {lease} 續約失敗（那把已經不在了——逾時被掃掉，或 vnavmesh 重載過）。已丟掉帳本，同一幀的對帳會重新借一把。");
+    }
 
     /// <summary>
     /// 把「按住暫停鍵」這件事套用到手動導航（＝vnavmesh 正在走的那條路）。
@@ -865,15 +963,40 @@ public abstract class AutoClear : ZoneModule
     /// <c>FollowPath.Update</c> 裡讀那個欄位 ⇒ 最慢下一幀（約 16ms）就恢復移動，
     /// 而且是<b>從角色當下位置沿原路徑續走</b>——路徑點沒有被清掉，不重算、也不倒回去。
     /// </para>
+    /// <para>
+    /// 🔴 <b>雙軌</b>：先跟 vnavmesh 借移動租約（v7.20.0.37 起才有的端點），借不到<b>而且</b>
+    /// 原因是「端點不存在」時，才退回舊的 <c>Path.SetMovementAllowed</c> 全域開關那條路，
+    /// 行為與加租約之前一字不差。⚠️ 端點存在但拒發租約（例如租約數已達上限）
+    /// <b>不可以</b>退回舊路徑——那條寫的是全域開關，正是租約要消滅的東西。
+    /// </para>
+    /// <para>
+    /// 🔑 <b>租約那條不必記得還</b>：BMR 當掉／被卸載／漏掉某一條離開路徑，租約最多 5 分鐘就逾時，
+    /// vnavmesh 自動還原成<b>使用者自己的值</b>並寫一行 Information 指名是誰壓著。
+    /// 舊路徑沒有這層保險，所以下面「還原失敗就重試到成功」那段只對舊路徑成立。
+    /// </para>
     /// </remarks>
     private void UpdateNavPause()
     {
+        // 🔴 續約心跳必須放在**任何**提早返回之前：下面那個「帳對上了就 return」是穩態時
+        //    每一幀都會走到的路徑，把心跳擺在它後面等於租約永遠不會被續，5 分鐘後
+        //    vnavmesh 自己放開——使用者按著暫停鍵，角色卻突然開始走，而且沒有任何訊息。
+        RenewNavPauseLease();
+
         // 只有「路徑已經交出去、vnavmesh 正在走」才有東西可暫停。
         // Pathfinding 階段還沒有路徑，這時關掉全域開關只會白白影響到別的外掛。
         var wantPause = _walkState == WalkState.Moving
             && MovementOverride.Instance is { AutoMovementPaused: true };
 
-        if (wantPause == _navPauseHeld)
+        // 🔴 鎖內只拍快照就出來：底下每一條路都要呼叫 IPC，而對方自己也持鎖。
+        bool held;
+        Guid lease;
+        lock (_navPauseGate)
+        {
+            held = _navPauseHeld;
+            lease = _navPauseLease;
+        }
+
+        if (wantPause == held)
         {
             // 帳對上了＝沒有欠帳也沒有待辦，順手把「失敗已記過」清掉，
             // 讓下一串失敗還講得出話來。
@@ -894,6 +1017,53 @@ public abstract class AutoClear : ZoneModule
                 return;
             }
 
+            // ── 主線：跟 vnavmesh 借一把移動租約 ──────────────────────
+            switch (DeepDungeonNav.TryAcquireSuppression(out var fresh))
+            {
+                case DeepDungeonNav.SuppressionResult.Acquired:
+                    // 🔴 借到租約**還沒有壓住任何東西**（新租約對受控值「沒有意見」），
+                    //    要真的暫停必須接著送 SetLeasedMovementAllowed(false)。
+                    if (!DeepDungeonNav.SetLeasedMovementAllowed(fresh, false))
+                    {
+                        // 剛借到就不在了（幾乎不可能）——交回去、節流重試，而且不記帳。
+                        DeepDungeonNav.ReleaseSuppression(fresh);
+                        _navPauseNextTry = now.AddMilliseconds(NavPauseRetryMs);
+                        if (!_navPauseFailureLogged)
+                        {
+                            _navPauseFailureLogged = true;
+                            Service.Logger.Information("[DD] 按住暫停：向 vnavmesh 借到移動租約，但緊接著的 Path.SetLeasedMovementAllowed 沒有生效（那把租約已經不在了），已交回並稍後重試。");
+                        }
+                        return;
+                    }
+
+                    lock (_navPauseGate)
+                    {
+                        _navPauseHeld = true;
+                        _navPauseLease = fresh;
+                        _navPauseRenewAtTick = Environment.TickCount64 + NavPauseRenewIntervalMs;
+                    }
+                    _navPauseNextTry = DateTime.MinValue;
+                    _navPauseFailureLogged = false;
+                    Service.Logger.Information($"[DD] 按住暫停：已用移動租約 {fresh} 請 vnavmesh 暫停手動導航。路徑點保留，放開按鍵即從原地續走；就算 BMR 這時候當掉，租約逾時後 vnavmesh 也會自己還原成使用者的設定。");
+                    return;
+
+                case DeepDungeonNav.SuppressionResult.Refused:
+                    // 🔴 端點在、只是不發租約 ⇒ **不可以**退回舊路徑（那條寫的是全域開關，
+                    //    正是租約要消滅的東西）。節流重試並把原因講出來；
+                    //    vnavmesh 自己會在 Warning 裡列出目前的持有者名單。
+                    _navPauseNextTry = now.AddMilliseconds(NavPauseRetryMs);
+                    if (!_navPauseFailureLogged)
+                    {
+                        _navPauseFailureLogged = true;
+                        Service.Logger.Information("[DD] 按住暫停：vnavmesh 拒絕發移動租約（多半是租約數已達上限，某個外掛只借不還）。手動導航這一段不受暫停鍵影響——要停請按「停止移動」，並看 vnavmesh 的 log 找出持有者。");
+                    }
+                    return;
+            }
+
+            // ── 退路：這個 vnavmesh 沒有租約端點（版本較舊，或根本沒安裝）──────
+            //    以下與加入租約之前完全相同，包含記帳規則與訊息文字；
+            //    「你的 vnavmesh 太舊」那行診斷等舊路徑真的成功之後才講——
+            //    NotSupported 也可能只是「vnavmesh 根本沒安裝」，那時講它是不成立的。
             if (!DeepDungeonNav.SetMovementAllowed(false))
             {
                 // 送不出去就**不要**記帳：沒關成功卻記成「我們握著」，放開時會憑空打開一個
@@ -907,17 +1077,52 @@ public abstract class AutoClear : ZoneModule
                 return;
             }
 
-            _navPauseHeld = true;
+            lock (_navPauseGate)
+            {
+                _navPauseHeld = true;
+                _navPauseLease = Guid.Empty;
+                _navPauseRenewAtTick = 0L;
+            }
             _navPauseNextTry = DateTime.MinValue;
             _navPauseFailureLogged = false;
             Service.Logger.Information("[DD] 按住暫停：已請 vnavmesh 暫停手動導航（Path.SetMovementAllowed=false）。路徑點保留，放開按鍵即從原地續走。");
+            if (!_navPauseLegacyLogged)
+            {
+                _navPauseLegacyLogged = true;
+                Service.Logger.Information("[DD] 按住暫停：這個 vnavmesh 沒有移動租約端點（v7.20.0.37 以前的版本），改用舊的全域開關。⚠️ 舊路徑沒有逾時保險——BMR 若在暫停期間當掉，vnavmesh 會留在「不移動」而且沒有任何訊息。建議更新 vnavmesh。");
+            }
             return;
         }
 
         // ── 還原 ──────────────────────────────────────────────────────
+        if (lease != Guid.Empty)
+        {
+            // 🔑 租約路徑不必「重試到成功」：交回失敗（多半是 vnavmesh 已經卸載）最多讓它再壓
+            //    5 分鐘，逾時 vnavmesh 會自己還原成使用者的值並寫一行 log。所以這裡無條件銷帳，
+            //    不會留下「欠帳卡住」的狀態。
+            var released = DeepDungeonNav.ReleaseSuppression(lease);
+            lock (_navPauseGate)
+            {
+                _navPauseHeld = false;
+                _navPauseLease = Guid.Empty;
+                _navPauseRenewAtTick = 0L;
+            }
+            _navPauseNextTry = DateTime.MinValue;
+            _navPauseFailureLogged = false;
+            Service.Logger.Information(released
+                ? $"[DD] 按住暫停：已交回移動租約 {lease}，vnavmesh 回到使用者自己的設定，手動導航從原地續走。"
+                : $"[DD] 按住暫停：交回移動租約 {lease} 時 vnavmesh 說那把已經不在了（多半是它重載過，或租約已經逾時），沒有事情要做。");
+            return;
+        }
+
         if (DeepDungeonNav.SetMovementAllowed(true))
         {
-            _navPauseHeld = false;
+            lock (_navPauseGate)
+            {
+                _navPauseHeld = false;
+                _navPauseLease = Guid.Empty;
+                _navPauseRenewAtTick = 0L;
+            }
             _navPauseNextTry = DateTime.MinValue;
             _navPauseFailureLogged = false;
             Service.Logger.Information("[DD] 按住暫停：已還原 vnavmesh 的移動開關（Path.SetMovementAllowed=true），手動導航從原地續走。");
@@ -929,7 +1134,12 @@ public abstract class AutoClear : ZoneModule
         //    沒有任何東西需要還原；繼續重試只會每幀丟例外。
         if (!DeepDungeonNav.IsInstalled())
         {
-            _navPauseHeld = false;
+            lock (_navPauseGate)
+            {
+                _navPauseHeld = false;
+                _navPauseLease = Guid.Empty;
+                _navPauseRenewAtTick = 0L;
+            }
             _navPauseNextTry = DateTime.MinValue;
             _navPauseFailureLogged = false;
             Service.Logger.Information("[DD] 按住暫停：還原移動開關時發現 vnavmesh 已經不在了，欠帳一併作廢（它的狀態隨實例消失，不需要還原）。");
@@ -953,15 +1163,34 @@ public abstract class AutoClear : ZoneModule
     /// 沒有這一段的話「按著 Alt 的瞬間傳送出深牢」就會把 vnavmesh 的全域開關永久留在 false。
     /// ⚠️ 只在<b>我們確實握著</b>時才動它（<see cref="_navPauseHeld"/>），不要無條件寫 true——
     /// 那會把別的外掛刻意關著的開關打開。
+    /// <para>
+    /// 📌 走租約時這裡是「交回租約」而不是「把開關寫回 <c>true</c>」——交回失敗也不要緊，
+    /// 逾時 vnavmesh 會自己還原成使用者的值。
+    /// </para>
     /// </remarks>
     private void ReleaseNavPause()
     {
-        if (!_navPauseHeld)
+        bool held;
+        Guid lease;
+        lock (_navPauseGate)
+        {
+            held = _navPauseHeld;
+            lease = _navPauseLease;
+            _navPauseHeld = false;
+            _navPauseLease = Guid.Empty;
+            _navPauseRenewAtTick = 0L;
+        }
+
+        if (!held)
             return;
-        _navPauseHeld = false;
+
         try
         {
-            DeepDungeonNav.SetMovementAllowed(true);
+            // 租約：交回就好，交回失敗也只是讓它壓到逾時。舊路徑：只能把全域開關寫回去。
+            if (lease != Guid.Empty)
+                DeepDungeonNav.ReleaseSuppression(lease);
+            else
+                DeepDungeonNav.SetMovementAllowed(true);
         }
         catch (Exception ex)
         {
