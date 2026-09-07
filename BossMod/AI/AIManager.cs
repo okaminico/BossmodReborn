@@ -21,6 +21,9 @@ sealed class AIManager : IDisposable
     public float ForceMovementIn => Beh?.ForceMovementIn ?? float.MaxValue;
     public string GetAIPreset => AiPreset?.Name ?? string.Empty;
 
+    /// <summary>AI 目前是否在運作。判的條件與 /bmrai toggle、AI 視窗標題完全相同（Beh != null）。</summary>
+    public bool IsEnabled => Beh != null;
+
     public AIManager(RotationModuleManager autorot, ActionManagerEx amex, MovementOverride movement)
     {
         Instance = this;
@@ -256,7 +259,12 @@ sealed class AIManager : IDisposable
             _config.Modified.Fire();
     }
 
-    private void EnableConfig(bool enable)
+    /// <summary>
+    /// /bmrai on|off 的實作。BossMod.AI.SetEnabled 這個 IPC 端點也走這裡（不複製邏輯），
+    /// 所以呼叫端拿到的行為與使用者自己打指令逐字相同 —— 包含 SwitchToIdle() 裡的
+    /// Controller.Clear()（把導航目標清成 null，正在走的路一併停下）。
+    /// </summary>
+    internal void EnableConfig(bool enable)
     {
         if (enable)
             SwitchToFollow(_config.FollowSlot);

@@ -417,44 +417,317 @@ public sealed class Plugin : IDalamudPlugin
         var tsStart = DateTime.Now;
         // 🔴 必須在這裡拍(Draw 回呼裡),因為它會讀 ImGui 的按鍵狀態;真正的讀取者是
         //    MovementOverride 的兩支移動 detour,那邊不在 Draw 回呼裡、只能讀這一幀的快照。
-        _movementOverride.UpdateAutoMovementPause();
-        var moveImminent = _movementOverride.IsMoveRequested() && (!ActionManagerEx.Config.PreventMovingWhileCasting || _movementOverride.IsForceUnblocked());
+        // 🔴 這一步起到 _bossmod.Update() 為止,原本是六個裸敘述串在一起:任何一個擲出受管理
+        //    例外,同一幀後面的**全部**處理就整段不執行 —— 包含 _hintsBuilder.Update(危險區)、
+        //    _amex 的技能佇列、_rotation、_ai、WindowSystem.Draw() 與 ExecuteHints()。
+        //    而 Dalamud 那一側不會把 BMR 關掉:UiBuilder 的 Draw 走的是 InvokeSafely
+        //    (Dalamud/Utility/EventHandlerExtensions.cs:66 —— 逐個訂閱者 try/catch 之後只寫
+        //    一行 Log.Error,而且**每一幀**都寫),所以外面看到的只是「log 一直在噴、BMR 半死不活」。
+        //    ⇒ 逐一隔離:壞掉的那一步跳過,同一幀後面的照常跑;失敗訊息自己節流。
+        // 🔴 這不是 AccessViolationException 的防護 —— AVE 在 .NET Core 是 corrupted-state
+        //    exception,catch(Exception) 攔不到;這裡處理的只有受管理例外。
+        try
+        {
+            _movementOverride.UpdateAutoMovementPause();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("MovementOverride.UpdateAutoMovementPause", ex);
+        }
+        // 🔴 擲例外時退回 false ＝「這一幀沒有移動意圖」,那是保守值:唯一的消費端
+        //    AIHintsBuilder.Update(:62)只在它為 true 時把 hints.MaxCastTime 壓成 0
+        //    (＝這一幀不建議起長詠唱),回 false 只是少壓一次,不會多下任何指令。
+        //    表達式本身一字未動,只是把宣告與賦值拆開。
+        var moveImminent = false;
+        try
+        {
+            moveImminent = _movementOverride.IsMoveRequested() && (!ActionManagerEx.Config.PreventMovingWhileCasting || _movementOverride.IsForceUnblocked());
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("MovementOverride.IsMoveRequested/IsForceUnblocked", ex);
+        }
 
-        _dtr.Update();
-        Camera.Instance?.Update();
-        _wsSync.Update(_prevUpdateTime);
-        _bossmod.Update();
-        _zonemod.ActiveModule?.Update();
-        _hintsBuilder.Update(_hints, PartyState.PlayerSlot, moveImminent);
+        try
+        {
+            _dtr.Update();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("DTRProvider.Update", ex);
+        }
+        try
+        {
+            Camera.Instance?.Update();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("Camera.Update", ex);
+        }
+        try
+        {
+            _wsSync.Update(_prevUpdateTime);
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("WorldStateGameSync.Update", ex);
+        }
+        try
+        {
+            _bossmod.Update();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("BossModuleManager.Update", ex);
+        }
+        // 🔴 這裡起到方法結尾,原本同樣是一串裸敘述。區域模組(深牢 AutoClear)的 Update 會
+        //    呼叫 vnavmesh 的 IPC,而 IPC 端點跑在對方的碼裡 —— 對方擲什麼我們控制不了。
+        //    這裡只隔離、只記 log:不吞掉任何語意差異(IpcNotReadyError 與其他例外一樣
+        //    都會被記下來、都會讓這一步跳過),也不替它決定要不要重試。
+        try
+        {
+            _zonemod.ActiveModule?.Update();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("ZoneModule.Update", ex);
+        }
+        // 🔴 這一步是本方法唯一的**資料生產者**:它先 _hints.Clear() 再把危險區、敵人清單、
+        //    要打的技能填進 _hints,而下面**每一個**消費者都讀同一份 —— 位移攔截、循環模組、
+        //    AI、FinishActionGather、疊加層。擲例外時 _hints 會停在「清乾淨了但只填到一半」。
+        // 🔴 所以失敗時退回明確的保守值:再 Clear() 一次 ＝「BMR 這一幀完全沒有意見」。
+        //    為什麼那是保守的 —— 空的 _hints 讓每個消費者都變成不動作:沒有危險區(位移攔截
+        //    不攔、AI 沒有禁區可躲)、沒有敵人(不選目標、不移動)、ActionsToExecute 是空的
+        //    (FinishActionGather 不會送出任何技能)。半套的 _hints 才危險:那會拿「只填了一半的
+        //    危險區」去下真實的走位與技能決策,而且外面完全看不出來。
+        //    ⚠️ 這一幀的疊加層會什麼都不畫 —— 那是刻意的:畫一半的危險區比不畫更會害人。
+        // 📌 AIHints.Clear() 本身只是欄位歸零與集合 Clear(AIHints.cs:161),不做配置、不呼叫
+        //    外部;仍然包一層,是為了讓「連退回都失敗」也留下紀錄而不是把例外再擲出去。
+        try
+        {
+            _hintsBuilder.Update(_hints, PartyState.PlayerSlot, moveImminent);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                _hints.Clear();
+            }
+            catch (Exception clearEx)
+            {
+                LogDrawStepFailure("AIHints.Clear(退回保守值)", clearEx);
+            }
+            LogDrawStepFailure("AIHintsBuilder.Update", ex);
+        }
         // 危險區這時候才剛建好（hints.Clear -> 模組填 -> Normalize 都在上面那一行裡跑完）。
         // 位移攔截的快照必須在這裡拍，而且必須在 Draw 回呼裡 —— IsForceUnblocked 會讀 ImGui IO。
-        _amex.UpdateDashIntercept(_movementOverride.IsForceUnblocked());
-        _amex.QueueManualActions();
-        _rotation.Update(_amex.AnimationLockDelayEstimate, _movementOverride.IsMoving());
+        // ⚠️ 這一步失敗時**不**做任何退回:DashInterceptTweak 的 _snapshot 是它的私有欄位,
+        //    跳過這一步等於沿用上一幀的危險區快照 ＝ 依上一幀的資訊繼續攔位移技(fail-closed)。
+        //    那個方向是安全的:多攔到的位移技下一幀就自然放行,而且使用者按著逃生鍵隨時能強制
+        //    放行;反過來把快照清掉才危險(fail-open ＝ 放行衝進真的危險區)。
+        //    Plugin 這一側也沒有清掉它的公開途徑,為此開一個介面是不成比例的。
+        try
+        {
+            _amex.UpdateDashIntercept(_movementOverride.IsForceUnblocked());
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("ActionManagerEx.UpdateDashIntercept", ex);
+        }
+        try
+        {
+            _amex.QueueManualActions();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("ActionManagerEx.QueueManualActions", ex);
+        }
+        try
+        {
+            _rotation.Update(_amex.AnimationLockDelayEstimate, _movementOverride.IsMoving());
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("RotationModuleManager.Update", ex);
+        }
         // 🔴 位置有兩個硬條件:必須在上面 _hintsBuilder.Update(它會 AIHints.Clear())**之後**,
         //    否則寫進去的東西當幀就被清掉;必須在下面 WindowSystem.Draw()**之前**,
         //    否則疊加層讀到的是上一幀的值。放在 _rotation.Update 之後還多一個好處:
         //    循環模組已經跑完,能直接看出它有沒有自己給方位建議(有就讓給它)。
-        UpdatePositionalHintDisplay();
+        try
+        {
+            UpdatePositionalHintDisplay();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("UpdatePositionalHintDisplay", ex);
+        }
         // 🔴 位置的硬條件與上面那行相同,再加一條:必須在下面 _amex.FinishActionGather() **之前** ——
         //    這一支會往 Hints.ActionsToExecute 推技能,而那個佇列就是 FinishActionGather 消費的。
-        UpdatePredictiveMitigationWithoutPreset();
-        _ai.Update();
-        _broadcast.Update();
-        _amex.FinishActionGather();
+        try
+        {
+            UpdatePredictiveMitigationWithoutPreset();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("UpdatePredictiveMitigationWithoutPreset", ex);
+        }
+        try
+        {
+            _ai.Update();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("AIManager.Update", ex);
+        }
+        try
+        {
+            _broadcast.Update();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("Broadcast.Update", ex);
+        }
+        // 📌 這一步不需要額外的退回值:FinishActionGather 的第一行就是 AutoQueue = default
+        //    (ActionManagerEx.cs:176),所以中途擲例外留下的是「這一幀沒有要送的技能」,
+        //    本身就是保守值 —— 不會把上一幀選好的技能誤送出去。
+        try
+        {
+            _amex.FinishActionGather();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("ActionManagerEx.FinishActionGather", ex);
+        }
 
-        var uiHidden = Service.GameGui.GameUiHidden || Service.Condition[ConditionFlag.OccupiedInCutSceneEvent] || Service.Condition[ConditionFlag.WatchingCutscene78] || Service.Condition[ConditionFlag.WatchingCutscene];
+        // 🔴 讀不到就退回 false ＝「遊戲的 HUD 沒有被隱藏」。為什麼那是保守的 —— 這個旗標只決定
+        //    「要不要畫」:退回 false 保住改動前的可見行為(視窗照畫),最壞的後果是過場動畫時
+        //    多看到一層疊加層,純美觀而且一眼看得出來;退回 true 則是把 BMR 的**全部**視窗與
+        //    疊加層靜默關掉,那正好長得像「外掛掛了」—— 也就是這一整串隔離要消滅的那種表象。
+        //    表達式本身一字未動,只是把宣告與賦值拆開。
+        var uiHidden = false;
+        try
+        {
+            uiHidden = Service.GameGui.GameUiHidden || Service.Condition[ConditionFlag.OccupiedInCutSceneEvent] || Service.Condition[ConditionFlag.WatchingCutscene78] || Service.Condition[ConditionFlag.WatchingCutscene];
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("GameUiHidden/Condition", ex);
+        }
+        // 🔴 Service.WindowSystem?.Draw() 是這個方法裡唯一刻意沒有隔離的一步。
+        //    ① 它最主要的失敗面已經被 Dalamud 用更好的機制包住了:Window.DrawInternal 對
+        //       this.Draw()(視窗內容)有專屬的 try/catch(本 pin 的 Window.cs:522-538)——
+        //       第一次擲例外顯示紅字並在 1 秒後自動重試,10 秒內第二次才改留手動按鈕。
+        //       那是**使用者看得見**的回報,在外面再包一層只會把它換成一行節流過的 log。
+        //    ② 在這裡 catch 反而有風險:WindowSystem.Draw 一開頭做 ImGui.PushID(Namespace),
+        //       而 Window.DrawInternal 內部有 ImGui.Begin/End 對。從中途擲出去的話 ImGui 的
+        //       ID 堆疊與視窗堆疊是不平衡的,而我們無從得知該補幾次 Pop/End ——
+        //       接住之後繼續送 ImGui 指令(下面的疊加層)是在一個已知壞掉的狀態上加東西。
+        // ⚠️ 代價要講清楚:Dalamud 的保護**只**蓋 Window.Draw() 的內容。PreOpenCheck()、
+        //    Update()、DrawConditions()、PreDraw()、PostDraw()、OnOpen()/OnClose() 這些覆寫點
+        //    都沒有被蓋到 —— 那裡擲例外仍然會讓這一幀後面的每一步(疊加層、ExecuteHints()、
+        //    UpdatePendingConfigSave())整批跳掉。要不要連它也包,是行為取捨,留給呼叫端裁決。
         if (!uiHidden)
         {
             Service.WindowSystem?.Draw();
-            _amex.DrawSlidecastMarker(); // overlay anchored to the game's cast bar, so it has to follow the same hidden-UI rule as the rest of the HUD
+            // 🔴 Service.WindowSystem?.Draw() 刻意**不包**,但它後面這一支是
+            //    BMR 自己的疊加層、沒有任何保護,獨立隔離。
+            try
+            {
+                _amex.DrawSlidecastMarker(); // overlay anchored to the game's cast bar, so it has to follow the same hidden-UI rule as the rest of the HUD
+            }
+            catch (Exception ex)
+            {
+                LogDrawStepFailure("ActionManagerEx.DrawSlidecastMarker", ex);
+            }
         }
 
-        ExecuteHints();
+        // 📌 這一支是真的會按下按鍵/送出技能的地方(跳躍、互動、AutoQueue)。它自己內部就有
+        //    節流(_throttleJump/_throttleInteract),隔離不會讓它變成連發。
+        try
+        {
+            ExecuteHints();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("ExecuteHints", ex);
+        }
 
-        Camera.Instance?.DrawWorldPrimitives();
-        UpdatePendingConfigSave();
+        try
+        {
+            Camera.Instance?.DrawWorldPrimitives();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("Camera.DrawWorldPrimitives", ex);
+        }
+        // 🔴 這一步值得單獨隔離的理由與別的不同:它是設定存檔的去抖動寫入器。前面任何一步
+        //    每幀擲例外的話,舊碼會讓它**永遠輪不到**,使用者剛改好的設定就一直不落地 ——
+        //    那是靜默的資料遺失,不是畫面問題。
+        try
+        {
+            UpdatePendingConfigSave();
+        }
+        catch (Exception ex)
+        {
+            LogDrawStepFailure("UpdatePendingConfigSave", ex);
+        }
         _prevUpdateTime = DateTime.Now - tsStart;
+    }
+
+    /// <summary>DrawUI 每一步各自隔離之後,失敗訊息的節流表(鍵＝隔離點名稱)。</summary>
+    /// <remarks>
+    /// 📌 鍵是原始碼裡寫死的字面值(目前 21 個),所以這張表不會長大,不需要淘汰。
+    /// 🔴 刻意<b>不用</b> <c>ECommons.Throttlers.EzThrottler</c>:那是整個外掛共用的靜態實例、
+    /// 內部是零同步的 <c>Dictionary</c>,而且首次必放行、key 全域持久。
+    /// </remarks>
+    private static readonly Dictionary<string, DateTime> _drawStepLastLog = [];
+
+    /// <summary>只保護 <see cref="_drawStepLastLog"/>。</summary>
+    /// <remarks>
+    /// 🔴 <b>鎖內只查表與寫回:不寫 log、不做 I/O、不碰 ImGui、不呼叫 IPC。</b>
+    /// 📌 現況這張表只有繪製執行緒會碰,上鎖是廉價的保險 —— 這個「字典＋時間戳」的形狀
+    /// 在艦隊裡已經以裸字典的形式壞過兩次(失敗形式是字典本身壞掉,不是拿到舊值)。
+    /// </remarks>
+    private static readonly object _drawStepLogGate = new();
+
+    /// <summary>同一個隔離點的失敗訊息最快每 10 秒一則。</summary>
+    /// <remarks>
+    /// ⚠️ 沒有節流的話,一個穩定重現的例外會以畫面更新率(每秒數十次)寫 log —— 那正是
+    /// 隔離之前 Dalamud 自己在做的事,把它原封不動搬過來就白隔離了。
+    /// </remarks>
+    private static readonly TimeSpan DrawStepLogThrottle = TimeSpan.FromSeconds(10d);
+
+    /// <summary>把 DrawUI 某一步的失敗記一行 Error(節流),然後回去繼續跑同一幀後面的處理。</summary>
+    /// <remarks>
+    /// 🔴 時間軸用 <see cref="DateTime.UtcNow"/>(牆鐘)而不是 <c>World.CurrentTime</c>:後者是
+    /// frame 時間戳,回放視窗裡會跳來跳去,拿它當節流基準會在倒帶時整批放行或整批卡死。
+    /// 🔴 最外層再包一次 catch:走到這裡的時候呼叫端正在收拾殘局,連「寫 log 本身失敗」
+    /// 也必須吞掉,否則例外會從 catch 區塊裡再飛出去,等於沒隔離。
+    /// </remarks>
+    private static void LogDrawStepFailure(string step, Exception ex)
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            bool shouldLog;
+            lock (_drawStepLogGate)
+            {
+                shouldLog = !_drawStepLastLog.TryGetValue(step, out var last) || now - last >= DrawStepLogThrottle;
+                if (shouldLog)
+                {
+                    _drawStepLastLog[step] = now;
+                }
+            }
+            // 🔴 寫 log 一定在鎖外。
+            if (shouldLog)
+            {
+                Service.Logger.Error(ex, $"[Draw] 「{step}」擲出例外,這一幀只跳過它一步,DrawUI 後面的處理照常執行。相同的失敗最多每 {DrawStepLogThrottle.TotalSeconds:f0} 秒記一次。");
+            }
+        }
+        catch
+        {
+        }
     }
 
     /// <summary>

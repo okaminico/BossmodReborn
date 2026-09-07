@@ -1,0 +1,136 @@
+﻿using System.Threading;
+
+namespace BossMod;
+
+/// <summary>
+/// IPC 端點的「遊戲主執行緒閘門」。
+/// </summary>
+/// <remarks>
+/// 🔴🔴 為什麼需要這一層：Dalamud 的 CallGate 是<b>直接方法呼叫</b>，提供端的碼跑在
+/// <b>呼叫端的執行緒</b>上。別的外掛從自己的背景工作、<c>Task.Run</c>、或任何非 framework
+/// 執行緒打過來時，BMR 這一側就會在那條執行緒上碰遊戲主執行緒每幀重建的東西：
+/// <list type="bullet">
+/// <item><c>AIHints</c> 的各個 <c>List</c>（<c>PredictedDamage</c>／<c>ForbiddenZones</c>／
+/// <c>PotentialTargets</c>）—— 每幀 <c>Clear()</c> 再 <c>Add()</c>，
+/// 從別條執行緒 <c>Count</c> 完再 <c>[i]</c> 會擲 <c>ArgumentOutOfRangeException</c>，
+/// 用 LINQ 走訪（<c>ActionDefinitions.IsDashDangerous</c> 裡的 <c>ForbiddenZones.Any</c>）
+/// 會擲 <c>InvalidOperationException: Collection was modified</c>。</item>
+/// <item><c>CollectionsMarshal.AsSpan(...)</c> 拿到的是 <c>List</c> 的後備陣列 ——
+/// 同時被擴充就是讀到舊陣列，或讀到還沒寫進去的槽。</item>
+/// <item>寫入端更兇：<c>PresetDatabase.Modify</c> 對 <c>UserPresets</c> 做
+/// <c>Add</c>／<c>RemoveAt</c>／<c>[i]=</c> 之後 <c>Save()</c>（檔案 I/O）並 <c>Fire</c>
+/// 事件；<c>RotationModuleManager.Preset</c> 的 setter 會 <c>Dispose()</c> 全部生效中的
+/// 循環模組；<c>ConfigRoot.ConsoleCommand</c> 用反射寫設定欄位再觸發存檔。
+/// 這些從別條執行緒進來時，framework 執行緒正在同一批物件上跑。</item>
+/// </list>
+/// <br/>
+/// 🔑 所以凡是「碰得到每幀重建的集合、觸發存檔、或改變外掛狀態」的端點，一律把整段工作
+/// 交回主執行緒執行。交回去的是<b>整個方法體</b>，不是只有第一行檢查 —— 這樣連下游 helper
+/// 也一起被覆蓋，不必逐一追。
+/// <br/><br/>
+/// 📌 <b>已經在主執行緒上呼叫時行為逐字不變</b>：直接就地執行，不配置 Task、不改變例外型別、
+/// 不多花任何一幀。絕大多數消費端（AutoDuty 等在自己的 <c>Framework.Update</c> 裡呼叫）
+/// 走的就是這條路。
+/// <br/><br/>
+/// ⚠️ 逾時的處置：等主執行緒最多 <see cref="TimeoutMs"/> 毫秒。逾時就回該端點的「不可用」值
+/// （false／null／float.MaxValue／空陣列），語意與「現在做不到」相同 —— 呼叫端本來就要處理
+/// 這個狀態（本檔涵蓋的讀取端點原本就以這些值表示「沒有資料」）。同時用
+/// <see cref="Interlocked"/> 把還沒開始跑的工作標成放棄，避免「呼叫端已經拿到 false 走人了，
+/// 五秒後 preset 才真的被刪掉」這種形狀。
+/// <br/><br/>
+/// 🔴 用 <c>RunOnFrameworkThread</c> 不是 <c>Framework.Run</c>：前者在已經是主執行緒時就地
+/// 執行，同步等它不會死結；後者一律 <c>StartNew</c>，同步等會死結。
+/// </remarks>
+internal static class IpcFrameworkGate
+{
+    /// <summary>等主執行緒的上限。超過就當作「現在做不到」。</summary>
+    internal const int TimeoutMs = 5000;
+
+    private const int StatePending = 0;
+    private const int StateRunning = 1;
+    private const int StateAbandoned = 2;
+
+    /// <summary>有回傳值的端點。<paramref name="unavailable"/> 是逾時時要回的「不可用」值。</summary>
+    internal static T Get<T>(string endpoint, Func<T> body, T unavailable)
+    {
+        if (Service.Framework.IsInFrameworkUpdateThread)
+            return body();
+
+        var state = StatePending;
+        var task = Service.Framework.RunOnFrameworkThread(() =>
+        {
+            // 呼叫端已經逾時走人了就什麼都不做。
+            if (Interlocked.CompareExchange(ref state, StateRunning, StatePending) != StatePending)
+                return unavailable;
+            return body();
+        });
+        // WaitAny 對已經失敗的工作也回 0（不擲），交給 GetResult 原樣重擲原始例外，
+        // 這樣呼叫端看到的例外型別與沒有這層閘門時完全一樣（不會變成 AggregateException）。
+        if (Task.WaitAny([task], TimeoutMs) == 0)
+            return task.GetAwaiter().GetResult();
+        ReportTimeout(endpoint, Interlocked.CompareExchange(ref state, StateAbandoned, StatePending) == StatePending);
+        return unavailable;
+    }
+
+    /// <summary>沒有回傳值的端點（本檔目前只有 <c>BossMod.AI.SetPreset</c> 走這條）。</summary>
+    internal static void Run(string endpoint, Action body)
+    {
+        if (Service.Framework.IsInFrameworkUpdateThread)
+        {
+            body();
+            return;
+        }
+
+        var state = StatePending;
+        var task = Service.Framework.RunOnFrameworkThread(() =>
+        {
+            if (Interlocked.CompareExchange(ref state, StateRunning, StatePending) != StatePending)
+                return;
+            body();
+        });
+        if (Task.WaitAny([task], TimeoutMs) == 0)
+        {
+            task.GetAwaiter().GetResult();
+            return;
+        }
+        ReportTimeout(endpoint, Interlocked.CompareExchange(ref state, StateAbandoned, StatePending) == StatePending);
+    }
+
+    /// <summary>同一個端點的逾時訊息重印間隔。</summary>
+    private const long TimeoutLogIntervalMs = 10000;
+
+    /// <summary>節流表上限，避免端點名意外發散時無限成長。</summary>
+    private const int MaxTrackedTimeoutKeys = 128;
+
+    private static readonly Dictionary<string, long> TimeoutLogTimes = [];
+
+    /// <summary>
+    /// 自帶的節流：首次必放行，之後每 <see cref="TimeoutLogIntervalMs"/> 毫秒放行一次。
+    /// 🔴 這條路徑跑在呼叫端的執行緒上，所以節流表自己要有鎖 —— 並行插入弄壞的是整張表。
+    /// 🔴 鎖內只碰字典 —— 不寫 log、不做 I/O、不呼叫任何別的外掛。
+    /// </summary>
+    private static bool ShouldLogTimeout(string key)
+    {
+        var now = Environment.TickCount64;
+        lock (TimeoutLogTimes)
+        {
+            if (TimeoutLogTimes.TryGetValue(key, out var last) && now - last < TimeoutLogIntervalMs)
+                return false;
+            if (TimeoutLogTimes.Count >= MaxTrackedTimeoutKeys && !TimeoutLogTimes.ContainsKey(key))
+                TimeoutLogTimes.Clear();
+            TimeoutLogTimes[key] = now;
+            return true;
+        }
+    }
+
+    /// <summary>要使用者回報的診斷寫 Information（使用者的 LogLevel 收得到，且不會被 Debug 的數十萬行淹沒）。</summary>
+    private static void ReportTimeout(string endpoint, bool abandoned)
+    {
+        if (!ShouldLogTimeout(endpoint))
+            return;
+        var outcome = abandoned
+            ? "工作還沒開始就被取消，什麼都沒做"
+            : "工作已經開始執行，會照常跑完（呼叫端拿到的回值不代表它沒發生）";
+        Service.Logger.Information($"[BMR IPC 閘門] BossMod.{endpoint} 等待遊戲主執行緒超過 {TimeoutMs} 毫秒，已回傳「不可用」值。{outcome}。通常代表遊戲正在讀取畫面或嚴重掉幀；若持續出現請回報。");
+    }
+}

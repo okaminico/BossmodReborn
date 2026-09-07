@@ -331,30 +331,53 @@ public sealed class ReplayManagementWindow : UIWindow
 
     public void StopRecording()
     {
-        if (_config.ImportantDutyAlert && IsImportantDuty(_recorder?.CFCID ?? 0))
+        // 🔴 這一段(「這場副本沒有完整模組,考慮上傳回放」的聊天提示)原本完全沒有防護,而它排在
+        //    下面**所有**狀態重置之前 —— Service.ChatGui.AddChatLinkHandler 對已經註冊過的 id 會擲
+        //    ArgumentException,Service.ChatGui.Print 也會把 SeString 組裝／送出的失敗擲上來。
+        //    原本擲了就會整段跳過三個旗標的清零、以及下面 recorder 的拆除,留下與 recorder 那條
+        //    同一個形狀的「半套」:IsRecording() 從此永遠是 true、StartRecording() 每次早退、
+        //    視窗標題停在「錄製中」,這個 session 再也錄不了任何東西。
+        // 📌 這裡**不吞**:catch 記一行 Warning(帶例外全文)之後照樣往下拆除。少掉的只有那一則
+        //    加值提示 —— 漏掉它不影響錄製本身,而讓它害死拆除是不成比例的。
+        // 🔴 這不是 AccessViolationException 的防護 —— AVE 在 .NET Core 是 corrupted-state
+        //    exception,catch(Exception) 攔不到;這裡處理的只有受管理例外。
+        try
         {
-            var path = _recorder?.LogPath;
-            _uploadLinkPayload ??= Service.ChatGui.AddChatLinkHandler(1, (id, str) =>
+            if (_config.ImportantDutyAlert && IsImportantDuty(_recorder?.CFCID ?? 0))
             {
-                if (id == 1)
+                var path = _recorder?.LogPath;
+                _uploadLinkPayload ??= Service.ChatGui.AddChatLinkHandler(1, (id, str) =>
                 {
-                    Task.Run(() =>
+                    if (id == 1)
                     {
-                        Process.Start(new ProcessStartInfo
+                        Task.Run(() =>
                         {
-                            FileName = "https://forms.gle/z6czgekaEnFBtgbB6",
-                            UseShellExecute = true
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = "https://forms.gle/z6czgekaEnFBtgbB6",
+                                UseShellExecute = true
+                            });
                         });
-                    });
-                    Service.ChatGui.Print(string.Format(Loc.T("REPLAY_ChatReplayPath", "[BMR] The path to your replay is: {0}"), path));
-                }
-            });
-            var alertPayload =
-                new TextPayload(
-                    Loc.T("[BMR] You recorded a duty without a complete module. Uploading this replay helps with module development. "));
-            var linkTextPayload = new TextPayload(Loc.T("[Upload the replay]"));
-            var seString = new SeStringBuilder().Add(alertPayload).Add(_uploadLinkPayload).Add(linkTextPayload).Add(RawPayload.LinkTerminator).Build();
-            Service.ChatGui.Print(seString);
+                        Service.ChatGui.Print(string.Format(Loc.T("REPLAY_ChatReplayPath", "[BMR] The path to your replay is: {0}"), path));
+                    }
+                });
+                var alertPayload =
+                    new TextPayload(
+                        Loc.T("[BMR] You recorded a duty without a complete module. Uploading this replay helps with module development. "));
+                var linkTextPayload = new TextPayload(Loc.T("[Upload the replay]"));
+                var seString = new SeStringBuilder().Add(alertPayload).Add(_uploadLinkPayload).Add(linkTextPayload).Add(RawPayload.LinkTerminator).Build();
+                Service.ChatGui.Print(seString);
+            }
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                Service.Logger.Warning(ex, "[REPLAY] 停止錄製時的「建議上傳回放」聊天提示擲出例外,已略過那則提示;錄製旗標照常清零、回放檔照常收尾。");
+            }
+            catch
+            {
+            }
         }
         _recordingManual = false;
         _recordingDuty = false;
