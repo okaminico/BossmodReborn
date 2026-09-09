@@ -87,33 +87,37 @@ class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.Evi
 // thrown 13y further, off the platform). All three E4S knockbacks (Geocrush / Landslide L-R / Dual
 // Earthen Fists) are the same "boss jumps to a point, then shoves everyone straight away from it".
 //
-// AI hint: the ONLY spot that reliably survives a 30y shove from a near-the-edge origin is right up
-// against that origin (hug it -> the shove carries you ~30y across to land safely mid-arena; stand
-// even a few yalms out and you overshoot the far wall). So we forbid everything except a tight disc
-// on the origin. A small, fixed target also stops the mid-cast jitter that a broad "anywhere legal"
-// zone caused (reported: "reaches a spot, then moves again right before it resolves") - with one
-// small attractor the pathfinder commits and holds instead of chasing the wandering optimum.
+// AI hint: forbid cells from which a 30y shove away from the origin would land you off the arena,
+// with a smooth gradient (yalms past the wall) so there is ALWAYS a "least bad" answer for the
+// pathfinder. Earlier iterations used a hard InvertedCircle(origin, small) to force a tight brace -
+// but when the origin sits near the edge (or dead centre, for Dual Fists) that made the entire
+// reachable arena forbidden, the pathfinder returned no destination, and AI navigation locked up.
+// Gradient-only can never fully lock: worst case the AI walks to the spot that overshoots the wall
+// by the fewest yalms.
 static class E4SKnockback
 {
     public const float Distance = 30f;
-    public const float BraceRadius = 3f;
 
     public static void AddHint(BossModule module, AIHints hints, WPos origin, DateTime resolveAt)
     {
         hints.AddPredictedDamage(module.Raid.WithSlot().Mask(), resolveAt);
         if (resolveAt <= module.WorldState.CurrentTime)
             return;
-        // 1) small attractor: stay hugging the origin (anti-jitter + the only reliably-safe area)
-        hints.AddForbiddenZone(ShapeDistance.InvertedCircle(origin, BraceRadius), resolveAt);
-        // 2) hard backstop: never stand where the shove itself would put you off the arena (catches
-        //    the "wrong side of the origin" cells that (1) alone would still allow)
         var bounds = module.Arena.Bounds;
         var center = module.Arena.Center;
+        // Only try to position for the shove when the origin sits well away from the arena centre
+        // (Geocrush / Landslide - boss jumps to an edge, hugging it is genuinely safe). For a
+        // near-centre origin (e.g. Dual Earthen Fists) no stand point avoids being thrown to the wall,
+        // so forcing one just fights the pathfinder - leave it to predicted damage + the player's own
+        // anti-knockback.
+        if ((origin - center).Length() < bounds.Radius * 0.55f)
+            return;
         hints.AddForbiddenZone(p =>
         {
             var landing = p != origin ? p + Distance * (p - origin).Normalized() : p;
             var off = landing - center;
-            return (off - bounds.ClampToBounds(off)).LengthSq() > 0.01f ? -1f : 1f;
+            var outBy = (off - bounds.ClampToBounds(off)).Length();
+            return outBy > 0f ? -outBy : 1f;
         }, resolveAt);
     }
 }

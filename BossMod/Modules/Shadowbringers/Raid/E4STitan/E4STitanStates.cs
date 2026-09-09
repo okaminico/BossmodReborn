@@ -58,8 +58,17 @@ class E4STitanStates : StateMachineBuilder
             .ActivateOnEnter<WeightOfTheWorld>()
             .ActivateOnEnter<GraniteGaol>()
             .ActivateOnEnter<PlateFracture>()
-            .Raw.Update = () => Module.PrimaryActor.IsDeadOrDestroyed;
+            // NEVER end this phase from the state machine. At Orogenesis, Titan (the primary actor)
+            // despawns and respawns - `IsDeadOrDestroyed` there would end the only phase, leaving
+            // StateMachine.ActivePhase == null. When that happens AIHintsBuilder stops treating this
+            // as an active module, so BossModule.CalculateAIHints (which sets hints.PathfindMapCenter
+            // to the arena centre every frame) never runs -> the pathfinding map stays centred on
+            // (0,0), the player's cell falls outside the window, and AI navigation locks up with
+            // per-frame "can't compute destination" spam (= the in-combat stutter that was reported).
+            // Module teardown on a real kill / wipe / zone change is BossModuleManager's job, not the
+            // state machine's.
+            .Raw.Update = () => false;
     }
 
-    private void SinglePhase(uint id) => SimpleState(id, 10000, "Titan mechanics (reactive, no fixed timeline)");
+    private void SinglePhase(uint id) => SimpleState(id, 10000f, "Titan mechanics (reactive, no fixed timeline)");
 }

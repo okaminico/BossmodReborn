@@ -26,9 +26,13 @@ public class E4STitan : BossModule
     public readonly List<Actor> GiantRocks;
     public Actor? BossMaximum() => Enemies((uint)OID.BossMaximum).Count != 0 ? Enemies((uint)OID.BossMaximum)[0] : null;
 
-    // 40x40 yalm square platform centered on (100,100) - confirmed from replay: Weight of the Land
-    // telegraphs land on a 4x4 grid at X/Z in {85,95,105,115}, bombs on a 3x3 grid at {86,100,114}.
-    public E4STitan(WorldState ws, Actor primary) : base(ws, primary, new(100, 100), new ArenaBoundsSquare(20))
+    // Platform centred on (100,100). Weight of the Land telegraphs land on a 4x4 grid at X/Z in
+    // {85,95,105,115} and bombs on a 3x3 grid at {86,100,114} (replay-confirmed), so the play area is
+    // ~r20. Bounds set to 21 rather than 20: replay shows players standing/surviving out to ~r21-22
+    // along the knockback axes, and the pathfinding map is exactly the bounds with NO margin - at r20
+    // a knockback landing or edge-follow at r20-21 puts the player's cell off the map, which locks up
+    // AI navigation (per-frame "no destination" spam = the in-combat stutter that was reported).
+    public E4STitan(WorldState ws, Actor primary) : base(ws, primary, new(100, 100), new ArenaBoundsSquare(21))
     {
         Bombs = Enemies((uint)OID.BombBoulder);
         GiantRocks = Enemies((uint)OID.GiantRock);
