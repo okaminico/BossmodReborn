@@ -65,9 +65,13 @@ class ForceOfTheLand(BossModule module) : Components.StackWithIcon(module, (uint
 // fight (160 casts in the analysed replay) and was previously completely untelegraphed. ----
 class WeightOfTheLand(BossModule module) : Components.SimpleAOEs(module, (uint)AID.WeightOfTheLand, 6);
 
-// ---- Evil Earth: 3.8s boss telegraph, then the helper drops ~6y circle puddles on the grid (4.7s
-// cast). Previously this was only a text warning because cactbot has no safe-zone data - now that we
-// have the real helper AOE id (0x410C) we can draw the actual danger circles. ----
+// ---- Evil Earth (邪土): 3.8s boss telegraph, then a 3-STAGE EXPANDING-RING AOE from the marked
+// square(s) - huijiwiki: "每次扩大为上一轮的外圈" (each wave is the outer ring of the previous), i.e.
+// circle -> donut -> larger donut, so the intended dodge is to move inward toward the marked square
+// as it expands. This component only draws the FIRST stage (helper cast 0x410C, ~6y circle); the
+// expansion waves come through as Aftershock1/2 (0x410D / 0x41B5) which are not yet modelled. So the
+// AI will dodge the initial hit but may re-path into an expansion ring - a proper multi-stage
+// donut-sequence component (see A11Prishe KnuckleSandwich for the pattern) is the real fix. ----
 class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.EvilEarthAOE, 6)
 {
     public override void AddHints(int slot, Actor actor, TextHints hints)

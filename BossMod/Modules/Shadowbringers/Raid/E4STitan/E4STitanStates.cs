@@ -1,22 +1,29 @@
 namespace BossMod.Shadowbringers.Raid.E4STitan;
 
-// PHASE STRUCTURE (from replay `4_WAR100_..._2026_09_10_01_27_54.log`):
+// PHASE STRUCTURE (huijiwiki + replay `4_WAR100_..._2026_09_10_01_27_54.log`):
 //
-//   Titan (0x298F) and Titan Maximum (0x2990) BOTH spawn at pull start. The fight alternates:
-//     Titan phase (small Titan targetable, ~4-5 min of mechanics)
-//       -> Orogenesis: Titan goes untargetable, ~5s later 0x2990 becomes targetable
-//       -> Titan Maximum phase (~45s: Earthen Fury + Earthen Fists + Dual Earthen Fists)
-//       -> BOTH actors despawn (ACT-) and a fresh Titan+Maximum pair spawns
-//       -> back to Titan phase
-//   In the analysed pull (undergeared, never killed) this loop ran ~5 times. A real clear ends it by
-//   killing Titan in the small phase, or in Titan Maximum.
+//   Titan (0x298F) and Titan Maximum (0x2990) BOTH spawn at pull start.
+//   P1  构想泰坦: small Titan - Weight of the Land, Evil Earth, Geocrush -> Wheels/Gauntlets/Armor
+//       transform -> Landslide/FaultLine/Magnitude5 combo, Bomb Boulders, Crumbling Down + Seismic Wave
+//   P2  极大泰坦 (Orogenesis): Titan sealed in the gaol, 0x2990 fights from the north.
+//       Earthen Fist x2 rounds, Dual Earthen Fists, Megalith, Tectonic Uplift, Plate Fracture,
+//       Granite Gaol, Tumult, Earthen Fury between blocks.
+//   P3  combined: Orogenesis again - Titan becomes targetable, 0x2990 sits outside at 12 o'clock and
+//       throws Earthen Fury "1 inner + 4 outer squares, resolve CW x5" (used 3 times), Dual Earthen
+//       Fists, Voice of the Land, Tumult (+1 hit each cast). Ends in a 10s Earthen Fury hard enrage
+//       if Titan is not dead. This is a soft-enrage loop - the analysed (undergeared, never-killed)
+//       pull cycled here, with both actors despawning+respawning as a pair every ~290s.
 //
-// Because the transition despawns the primary actor, BossMod recreates the module for each new pair,
-// and because the Wheels/Gauntlets path and mechanic order carry a lot of RNG, there is no useful
-// deterministic per-cast timeline to build. So this uses a single reactive phase with EVERY component
-// active for the whole module lifetime - Titan-phase and Titan-Maximum-phase mechanics alike, since
-// which one is "current" flips back and forth. Every component reacts to real
-// OnCastStarted/OnEventIcon events, so avoidance is fully live regardless of phase bookkeeping.
+// Because transitions despawn the primary actor (BossMod recreates the module for each new pair) and
+// the Wheels/Gauntlets path + mechanic order carry heavy RNG, there is no useful deterministic
+// per-cast timeline. So this uses a single reactive phase with EVERY component active for the whole
+// module lifetime - P1/P2/P3 mechanics alike. Every component reacts to real OnCastStarted/OnEventIcon
+// events, so avoidance is live regardless of which phase label would be "current".
+//
+// NOTE: while a boss module is active, the generic Lumina-shape AutoHints fallback in AIHintsBuilder
+// is SUPPRESSED - the AI dodges ONLY what these components emit. Gaps here (Crumbling Down bait,
+// Aftershock expansion rings, Tectonic Uplift geometry, the instant Landslide selectors) are simply
+// not dodged; wrong shapes are dodged wrongly. Keep that in mind before widening MinMaturity.
 class E4STitanStates : StateMachineBuilder
 {
     public E4STitanStates(BossModule module) : base(module)

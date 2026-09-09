@@ -42,10 +42,12 @@ class MassiveLandslideFront(BossModule module) : Components.GenericKnockback(mod
     }
 }
 
-// "Back Corners" - safe in back corners of the arena (danger is a frontal + side cone from boss).
-// Replay: boss casts 0x411A (4.1s) with a helper 0x411B (4.7s), telegraphs centered on the arena
-// mid-line (100, 90/110) - the cone shape/angle here is still a cactbot-derived estimate.
-class LandslideBackCorners(BossModule module) : Components.SimpleAOEs(module, (uint)AID.LandslideBackCorners, new AOEShapeCone(24, 120.Degrees()));
+// "地裂 / Landslide" (Gauntlets combo, part 1): huijiwiki says Titan jumps to a random cardinal and
+// does a CROSS-shaped AOE there, then immediately follows with Left/Right half-arena landslide.
+// Replay: boss casts 0x411A (4.1s) + helper 0x411B (4.7s) centered on a cardinal (e.g. 100/110).
+// Cross length/half-width are still estimates (arena is 40 wide, cast point ~10 off centre).
+// Safe = the quadrant diagonals, away from both cross arms.
+class LandslideBackCorners(BossModule module) : Components.SimpleAOEs(module, (uint)AID.LandslideBackCorners, new AOEShapeCross(30f, 5f));
 
 // ---- Giant Rock landslide: the Giant Rock adds (OID 0x2992) each cast a ~6y circle landslide
 // (0x410F, 4.7s) scattered across the arena, alongside the boss's own Crumbling Down. Radius is a
@@ -166,10 +168,12 @@ class BombBoulders(BossModule module) : Components.GenericAOEs(module)
     }
 }
 
-// ---- Plate Fracture: 4-cast rotating quadrant sequence (front-right/back-right/back-left/front-left),
-// each cast is dangerous in its named 90-degree quadrant relative to boss facing - move to the opposite
-// side. This directly covers the "falls off the platform" complaint since the safe direction is always
-// toward arena center along the opposite quadrant, never toward an edge. ----
+// ---- Plate Fracture (岩盘粉碎): huijiwiki - Titan Maximum DESTROYS 2x2 regions of the arena one by
+// one in CW/CCW order (3 regions in the first round, 2 in the second), leaving one 2x2 quadrant safe.
+// This is a floor-drop / arena-shrink mechanic, NOT a damage cone - the code below (cactbot-derived
+// 45deg cones per quadrant, IDs 0x4125-0x4128) is UNVERIFIED: it never occurred in the analysed
+// replay, and if the real mechanic is an arena-shrink the cone shape is wrong anyway. Treat as a
+// placeholder until a Titan-Maximum-phase replay is available. ----
 class PlateFracture(BossModule module) : Components.GenericAOEs(module)
 {
     private static readonly (AID aid, Angle dir)[] _quadrants =
