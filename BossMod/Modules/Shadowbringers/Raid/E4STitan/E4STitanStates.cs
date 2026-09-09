@@ -1,18 +1,30 @@
 namespace BossMod.Shadowbringers.Raid.E4STitan;
 
-// NOTE (WIP): rather than hand-timing all ~140 individual casts from e4s.txt (Wheels/Gauntlets path
-// choice is random anyway, so a fully deterministic timeline isn't possible regardless), this uses
-// broad phase blocks that keep every relevant mechanic component active throughout, with a single
-// placeholder state per phase. Each component reacts to real OnCastStarted/OnEventIcon/OnTethered
-// events, so actual in-game avoidance is fully live/reactive - the only thing a finer per-cast
-// timeline would add is earlier lead-time in BossMod's own "upcoming mechanic" UI, not the
-// underlying hint accuracy.
+// PHASE STRUCTURE (from replay `4_WAR100_..._2026_09_10_01_27_54.log`):
+//
+//   Titan (0x298F) and Titan Maximum (0x2990) BOTH spawn at pull start. The fight alternates:
+//     Titan phase (small Titan targetable, ~4-5 min of mechanics)
+//       -> Orogenesis: Titan goes untargetable, ~5s later 0x2990 becomes targetable
+//       -> Titan Maximum phase (~45s: Earthen Fury + Earthen Fists + Dual Earthen Fists)
+//       -> BOTH actors despawn (ACT-) and a fresh Titan+Maximum pair spawns
+//       -> back to Titan phase
+//   In the analysed pull (undergeared, never killed) this loop ran ~5 times. A real clear ends it by
+//   killing Titan in the small phase, or in Titan Maximum.
+//
+// Because the transition despawns the primary actor, BossMod recreates the module for each new pair,
+// and because the Wheels/Gauntlets path and mechanic order carry a lot of RNG, there is no useful
+// deterministic per-cast timeline to build. So this uses a single reactive phase with EVERY component
+// active for the whole module lifetime - Titan-phase and Titan-Maximum-phase mechanics alike, since
+// which one is "current" flips back and forth. Every component reacts to real
+// OnCastStarted/OnEventIcon events, so avoidance is fully live regardless of phase bookkeeping.
 class E4STitanStates : StateMachineBuilder
 {
     public E4STitanStates(BossModule module) : base(module)
     {
-        SimplePhase(0, Phase1, "Phase 1-2 (Titan)")
+        SimplePhase(0, SinglePhase, "Titan / Titan Maximum (reactive)")
+            // Titan (small) phase
             .ActivateOnEnter<Stonecrusher>()
+            .ActivateOnEnter<WeightOfTheLand>()
             .ActivateOnEnter<PulseOfTheLand>()
             .ActivateOnEnter<EvilEarth>()
             .ActivateOnEnter<ForceOfTheLand>()
@@ -26,13 +38,9 @@ class E4STitanStates : StateMachineBuilder
             .ActivateOnEnter<FaultLineFront>()
             .ActivateOnEnter<MagnitudeFive>()
             .ActivateOnEnter<BombBoulders>()
+            .ActivateOnEnter<GiantRockLandslide>()
             .ActivateOnEnter<SeismicWave>()
-            .Raw.Update = () => Module.PrimaryActor.IsDestroyed || !Module.PrimaryActor.IsTargetable; // ends at Orogenesis untargetable
-
-        SimplePhase(1, Transition, "Orogenesis transition")
-            .Raw.Update = () => Module.PrimaryActor.IsDestroyed || Module.PrimaryActor.IsTargetable;
-
-        DeathPhase(2, Phase3)
+            // Titan Maximum phase
             .ActivateOnEnter<EarthenFury>()
             .ActivateOnEnter<Tumult>()
             .ActivateOnEnter<TectonicUplift>()
@@ -43,12 +51,8 @@ class E4STitanStates : StateMachineBuilder
             .ActivateOnEnter<WeightOfTheWorld>()
             .ActivateOnEnter<GraniteGaol>()
             .ActivateOnEnter<PlateFracture>()
-            .ActivateOnEnter<VoiceOfTheLand>()
-            .ActivateOnEnter<PulseOfTheLand>()
-            .ActivateOnEnter<ForceOfTheLand>();
+            .Raw.Update = () => Module.PrimaryActor.IsDeadOrDestroyed;
     }
 
-    private void Phase1(uint id) => SimpleState(id, 1000, "Titan mechanics (phase ends via untargetable check above)");
-    private void Transition(uint id) => SimpleState(id, 1000, "Orogenesis (phase ends via targetable check above)");
-    private void Phase3(uint id) => SimpleState(id, 1000, "Titan Maximum mechanics (enrage)");
+    private void SinglePhase(uint id) => SimpleState(id, 10000, "Titan mechanics (reactive, no fixed timeline)");
 }

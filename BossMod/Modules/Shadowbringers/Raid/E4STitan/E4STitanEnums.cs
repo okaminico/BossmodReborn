@@ -1,101 +1,133 @@
 namespace BossMod.Shadowbringers.Raid.E4STitan;
 
-// NOTE (WIP): Boss/BossMaximum/GraniteGaolHelper/BombBoulder all confirmed from user's actual pulls
-// via BossMod's Debug > Actors panel (2026-09-01). Everything else (all AIDs, SIDs, IconIDs,
-// TetherIDs) comes directly from cactbot's data/05-shb/raid/e4s.ts, which is name/ID-based and
-// doesn't depend on client language, so those are reliable.
+// NOTE: IDs are now cross-checked against a real E4S replay
+// (BossModReborn log `4_WAR100_..._2026_09_10_01_27_54.log`, zone 856 / CFC 690, game 2026.07.22).
+// "verified (replay)" = seen firing in that log with the stated caster / cast time.
+// "cactbot, unverified" = did not occur in that pull (RNG path or the group never pushed far enough).
+//
+// Helper note: OID.Helper (0x233C) is BOTH the decorative arena statues AND the real invisible
+// cast-helper - the grid AOEs (Weight of the Land / Evil Earth puddles, Million-Ton Landslide,
+// Earthen Fury/Fist helper hits, aftershocks) are all cast from a 0x233C actor named "泰坦".
+// Components match those by action id regardless of caster, so this is fine.
 public enum OID : uint
 {
-    Boss = 0x298F, // "泰坦" (Titan) in phases 1/2 - confirmed via Debug > Actors
-    BossMaximum = 0x2990, // "極大泰坦" (Titan Maximum) in phase 3 - confirmed via Debug > Actors
-    BombBoulder = 0x2991, // "爆破岩石" (Bomb Boulder) adds - confirmed via Debug > Actors,
-                           // positions matched cactbot's documented 86/100/114 grid exactly
-    GiantRock = 0x2992, // "巨大岩石" - spotted alongside Bomb Boulder in the same pull, purpose not
-                         // yet identified/used by any component (possibly a telegraph/prep actor
-                         // that appears before the bombs proper) - noted for future investigation
-    GraniteGaolHelper = 0x2A4F, // "花崗石牢" (Granite Gaol) - confirmed via Debug > Actors
-    Helper = 0x233C, // NOTE: this turned out to be a bunch of decorative/environment actors also
-                      // literally named "泰坦" (statues around the arena?), NOT a generic invisible
-                      // cast-helper OID as originally guessed - currently unused by any component,
-                      // harmless either way, but don't rely on it if you add something that needs a
-                      // real helper OID later.
+    Boss = 0x298F, // "泰坦" (Titan) in phases 1/2 - verified (replay), BNpcName 8350
+    BossMaximum = 0x2990, // "極大泰坦" (Titan Maximum) - verified (replay), BNpcName 8349.
+                          // IMPORTANT: 0x2990 spawns *together with* 0x298F at pull start and both are
+                          // destroyed+recreated as a pair at every phase transition (see E4STitanStates).
+    BombBoulder = 0x2991, // "爆破岩石" (Bomb Boulder) adds - verified (replay), 3x3 grid at X/Z in {86,100,114}
+    GiantRock = 0x2992, // "巨大岩石" - verified (replay): casts GiantRockLandslide (0x410F), i.e. extra
+                        // scattered landslide circles alongside the boss's own Crumbling Down.
+    GraniteGaolHelper = 0x2A4F, // "花崗石牢" (Granite Gaol) - spawns at pull start; did NOT cast in the
+                                // analysed replay (gaol never triggered), tether/icon path unverified.
+    Helper = 0x233C, // invisible cast-helper + decorative statues, see file header note
 }
 
 public enum AID : uint
 {
-    AutoAttack = 870, // Boss->player, no cast, single-target (generic ARR/SHB Titan autoattack id, verify)
+    AutoAttack = 0x413D, // Boss->player, no cast - verified (replay), id 16701
+    AutoAttackMaximum = 0x413E, // BossMaximum->player, no cast - verified (replay), id 16702
 
-    // ---- Warmup / repeated phase 1&2 mechanics ----
-    Stonecrusher = 0x4116, // Boss->self, 5.0s cast, tankbuster (generally invulned by MT, low priority)
-    StonecrusherFollowup = 0x4143, // Boss->self, no cast, tankbuster followups x2
+    // ---- Titan (small) phase ----
+    Stonecrusher = 0x4116, // Boss->player, 4.7s cast, tankbuster ("崩岩") - verified (replay)
+    StonecrusherFollowup = 0x4143, // Boss->player, no cast, tankbuster followups - verified (replay)
 
-    WeightOfTheLand = 0x4108, // Boss->self, cast, visual - precedes WeightOfTheLandAOE puddles
-    PulseOfTheLand = 0x4106, // Boss->self, no cast, headmarker spread resolve (icon 00B9, Yellow Spread)
-    EvilEarth = 0x410B, // Boss->self, cast, spread pattern markers on ground
-    ForceOfTheLand = 0x4107, // Boss->self, no cast, headmarker stack resolve (icon 00BA, Orange Stack)
-    VoiceOfTheLand = 0x4114, // Boss->self, cast, raidwide
-    Geocrush = 0x4113, // Boss->self, cast, raidwide + knockback (source of "doesn't dodge knockback" complaints)
+    WeightOfTheLandVisual = 0x4105, // Boss->self, 1.8s cast, telegraph before the puddles - verified (replay), id 16645
+    WeightOfTheLand = 0x4108, // Helper->self, 4.7s cast, ~6y circle puddle on a 4x4 grid (X/Z in {85,95,105,115}) - verified (replay), id 16648
+    Aftershock1 = 0x410D, // Helper->self, no cast, high-frequency small aftershock - verified (replay), id 16653
+    Aftershock2 = 0x41B5, // Helper->self, no cast, aftershock rings, bursts of ~16 - verified (replay), id 16821
 
-    // ---- Wheels / Gauntlets path split ----
-    EarthenWheels = 0x40E8, // Boss->self, cast, starts "Wheels" (fault line) path - massive landslide on sides
-    EarthenGauntlets = 0x40E6, // Boss->self, cast, starts "Gauntlets" (landslide) path - massive landslide in front
-    EarthenArmorA = 0x40E7, // Boss->self, cast, armor phase marker A
-    EarthenArmorB = 0x40E9, // Boss->self, cast, armor phase marker B
+    PulseOfTheLand = 0x4106, // Helper->self, no cast, spread resolve (icon 00B9) - verified (replay), id 16646
+    ForceOfTheLand = 0x4107, // Helper->self, no cast, stack resolve (icon 00BA) - verified (replay), id 16647
 
-    // Wheels path specific
-    FaultLineSides = 0x40E8, // duplicate of EarthenWheels ability - massive AOE on both sides, safe middle/front-back
-    FaultLineFront = 0x411F, // Boss->tank, cast, tank charge (line AOE at current MT position)
-    MagnitudeFive = 0x4121, // Boss->self, cast, raidwide - "get under boss" (donut, safe near hitbox)
+    EvilEarth = 0x410B, // Boss->self, 3.8s cast, telegraph - verified (replay), id 16651
+    EvilEarthAOE = 0x410C, // Helper->self, 4.7s cast, ~6y circle puddle on the grid - verified (replay), id 16652
 
-    // Gauntlets path specific
-    MassiveLandslideFront = 0x40E6, // duplicate id of EarthenGauntlets - big frontal cleave, safe behind boss
-    MassiveLandslideSides = 0x4117, // Boss->self, cast, big cleave on both sides, safe front/back
-    LandslideBackCorners = 0x411A, // Boss->self, cast, safe in back corners
-    LandslideLeftRight = 0x411C, // Boss->self, cast, directional rect knockback (paired w/ 0x411D)
-    LandslideRightLeft = 0x411D, // Boss->self, cast, directional rect knockback (paired w/ 0x411C)
+    VoiceOfTheLand = 0x4114, // Boss->self, 3.7s cast, raidwide - verified (replay), id 16660
+    Geocrush = 0x4113, // Boss->self, 4.7s cast, raidwide + knockback from a fixed edge point (LocXZ carries it) - verified (replay), id 16659
 
-    CrumblingDown = 0x410E, // Boss->self, cast, headmarker (icon 0017) "bomb on you" setup
-    BombBoulders = 0x4109, // Boss->self, cast, spawns Bomb Boulder adds
-    BuryDirections = 0x4142, // BombBoulder->location, no cast, bomb explosion (positions fixed per phase pattern)
-    SeismicWave = 0x4110, // Boss->self, cast, raidwide-ish follow-up after bombs
+    // Bomb Boulders
+    BombBoulders = 0x4109, // Boss->self, 4.7s cast, spawns the Bomb Boulder adds - verified (replay), id 16649
+    BombBoulderAOE = 0x410A, // BombBoulder->self, 4.7s cast, ~6y circle explosion (3x3 grid) - verified (replay), id 16650
+    BuryDirections = 0x4142, // BombBoulder->self, no cast, cosmetic "sink" - verified (replay), id 16706
 
-    Orogenesis = 0x4371, // Boss->self, cast, phase transition into Titan Maximum (very long cast/untargetable window)
+    // Crumbling Down / Landslide setup
+    CrumblingDown = 0x410E, // Boss->self, 4.7s cast, preceded by icon 0017 on players - verified (replay), id 16654
+    GiantRockLandslide = 0x410F, // GiantRock->self, 4.7s cast, extra scattered ~6y landslide circles - verified (replay), id 16655
+    SeismicWave = 0x4110, // Boss->self, 3.7s cast, raidwide follow-up - verified (replay), id 16656
 
-    // ---- Titan Maximum phase (Transition) ----
-    EarthenFury = 0x4124, // BossMaximum->self, cast, raidwide
-    EarthenFuryBleed = 0x413A, // BossMaximum->self, cast, raidwide + bleed DoT
-    EarthenFuryEnrage = 0x4140, // BossMaximum->self, cast, enrage wipe
+    // Fault Line
+    FaultLineFront = 0x411E, // Boss->player (tank), 2.7s cast, line at the marked tank - verified (replay), id 16670
+    FaultLineHelperA = 0x411F, // Boss->self, no cast - verified (replay), id 16671 (paired with 0x4120)
+    FaultLineHelperB = 0x4120, // Helper->self, no cast - verified (replay), id 16672
+    MagnitudeFive = 0x4121, // Boss->self, 2.7s cast, "get under boss" donut - verified (replay), id 16673
 
-    EarthenAnguish = 0x4137, // Boss->tank, cast, tankbuster (usually invulned)
-    EarthenFistLeftRight = 0x412F, // BossMaximum->self, cast, sequential cleave left then right
-    EarthenFistRightLeft = 0x4130, // BossMaximum->self, cast, sequential cleave right then left
-    EarthenFistDoubleLeft = 0x4131, // BossMaximum->self, cast, cleave left twice (stay left)
-    EarthenFistDoubleRight = 0x4132, // BossMaximum->self, cast, cleave right twice (stay right)
-    DualEarthenFists = 0x4135, // BossMaximum->self, cast, raidwide + knockback (source of "doesn't dodge knockback" complaints)
+    // Wheels / Gauntlets / Armor selectors - ALL INSTANT (no cast bar). Components must react to the
+    // follow-up casts below, not to these. verified (replay).
+    EarthenGauntlets = 0x40E6, // Boss->self, no cast, "Gauntlets" path selector - id 16614
+    EarthenArmorA = 0x40E7, // Boss->self, no cast - id 16615
+    EarthenWheels = 0x40E8, // Boss->self, no cast, "Wheels" path selector - id 16616
+    EarthenArmorB = 0x40E9, // Boss->self, no cast - id 16617
 
-    Megalith = 0x4138, // BossMaximum->player, cast, shared tankbuster (stack on tank)
-    TectonicUplift = 0x4122, // BossMaximum->self, cast, raidwide-ish, arena-wide telegraphed damage
-    RockThrow = 0x412D, // BossMaximum->player, no cast, gaol tether setup (icon 00BF headmarker on 2 players)
-    WeightOfTheWorld = 0x442B, // BossMaximum->player, no cast, headmarker (icon 00BB) single-target heavy damage
-    Tumult = 0x412A, // BossMaximum->self, no cast, raidwide, repeats x5
+    // Landslide family follow-ups
+    MassiveLandslideFront = 0x40E6, // alias of EarthenGauntlets - INSTANT, cannot be reacted to via CastInfo
+    FaultLineSides = 0x40E8, // alias of EarthenWheels - INSTANT, cannot be reacted to via CastInfo
+    MassiveLandslideSides = 0x4117, // Boss->self, no cast (+ helpers 0x4118/0x4119) - verified (replay), id 16663
+    MassiveLandslideSidesHelperA = 0x4118, // Helper->self, no cast - id 16664
+    MassiveLandslideSidesHelperB = 0x4119, // Helper->self, no cast - id 16665
+    LandslideBackCorners = 0x411A, // Boss->self, 4.1s cast, central line (paired with helper 0x411B) - verified (replay), id 16666
+    LandslideBackCornersHelper = 0x411B, // Helper->self, 4.7s cast - verified (replay), id 16667
+    LandslideLeftRight = 0x411C, // Boss->self, 2.7s cast, "left" directional landslide - verified (replay), id 16668
+    LandslideRightLeft = 0x411D, // Boss->self, cast, "right" variant - cactbot, unverified, id 16669
 
-    PlateFractureFrontRight = 0x4125, // Boss->self, cast, quadrant AOE - danger front-right
-    PlateFractureBackRight = 0x4126, // Boss->self, cast, quadrant AOE - danger back-right
-    PlateFractureBackLeft = 0x4127, // Boss->self, cast, quadrant AOE - danger back-left
-    PlateFractureFrontLeft = 0x4128, // Boss->self, cast, quadrant AOE - danger front-left
+    Orogenesis = 0x4371, // Boss->self, no cast, phase-transition trigger; boss goes untargetable ~5s
+                         // earlier, then Titan/Maximum despawn+respawn ~45s later - verified (replay), id 17265
+
+    // ---- Titan Maximum phase ----
+    EarthenFury = 0x4124, // BossMaximum->self, 5.7s cast, raidwide - verified (replay), id 16676
+    EarthenFuryHelper = 0x43E8, // Helper->self, 7.2s cast, actual raidwide hit - verified (replay), id 17384
+    EarthenFuryBleed = 0x413A, // BossMaximum->self, cast, raidwide + bleed - cactbot, unverified, id 16698
+    EarthenFuryEnrage = 0x4140, // BossMaximum->self, cast, enrage - cactbot, unverified, id 16704
+    ContinentalOverlay = 0x4129, // Helper->self, no cast, x6 burst raidwide in Maximum phase (likely the
+                                 // repeating "Tumult"-style raidwide) - verified (replay), id 16681
+
+    EarthenAnguish = 0x4137, // Boss->player, cast, tankbuster - verified (replay, 1 instant occurrence), id 16695
+
+    EarthenFistLeftRight = 0x412F, // BossMaximum->self, 6.7s cast, left then right - verified (replay), id 16687
+    EarthenFistRightLeft = 0x4130, // BossMaximum->self, cast - cactbot, unverified, id 16688
+    EarthenFistDoubleLeft = 0x4131, // BossMaximum->self, cast - cactbot, unverified, id 16689
+    EarthenFistDoubleRight = 0x4132, // BossMaximum->self, 6.7s cast - verified (replay), id 16690
+    EarthenFistExtra = 0x4134, // BossMaximum->self, no cast, x3 - verified (replay), id 16692
+    EarthenFistHelperLeft = 0x43CA, // Helper->self (x~89), 0.7s cast, actual left line hit - verified (replay), id 17354
+    EarthenFistHelperRight = 0x43C9, // Helper->self (x~111), 0.7s cast, actual right line hit - verified (replay), id 17353
+
+    DualEarthenFists = 0x4135, // BossMaximum->self, 4.0s cast, raidwide + knockback (LocXZ carries origin, y~5) - verified (replay), id 16693
+    DualEarthenFistsHelperA = 0x4136, // Helper->self, 4.7s cast - verified (replay), id 16694
+    DualEarthenFistsHelperB = 0x4687, // Helper->self, 5.1s cast - verified (replay), id 18055
+
+    Megalith = 0x4138, // BossMaximum->player, cast, shared tankbuster stack - cactbot, unverified, id 16696
+    TectonicUplift = 0x4122, // BossMaximum->self, cast, arena-wide - cactbot, unverified, id 16674
+    RockThrow = 0x412D, // BossMaximum->player, no cast, gaol tether setup (icon 00BF) - cactbot, unverified, id 16685
+    WeightOfTheWorld = 0x442B, // BossMaximum->player, no cast, single-target heavy (icon 00BB) - cactbot, unverified, id 17451
+    Tumult = 0x412A, // BossMaximum->self, no cast, repeating raidwide - cactbot, unverified (see ContinentalOverlay 0x4129), id 16682
+
+    PlateFractureFrontRight = 0x4125, // Boss->self, cast, quadrant AOE - cactbot, unverified, id 16677
+    PlateFractureBackRight = 0x4126, // Boss->self, cast, quadrant AOE - cactbot, unverified, id 16678
+    PlateFractureBackLeft = 0x4127, // Boss->self, cast, quadrant AOE - cactbot, unverified, id 16679
+    PlateFractureFrontLeft = 0x4128, // Boss->self, cast, quadrant AOE - cactbot, unverified, id 16680
 }
 
 public enum SID : uint
 {
-    Filthy = 0x5C2, // BossMaximum->player, bleed DoT from EarthenFuryBleed
+    Filthy = 0x5C2, // BossMaximum->player, bleed DoT from EarthenFuryBleed - cactbot, unverified
 }
 
 public enum IconID : uint
 {
-    PulseOfTheLandSpread = 0xB9, // Yellow Spread
-    ForceOfTheLandStack = 0xBA, // Orange Stack
-    CrumblingDownBomb = 0x17, // Bomb on you
-    WeightOfTheWorldSingle = 0xBB, // Blue single-target weight
-    MegalithStack = 0x5D, // shared tankbuster stack marker
-    GraniteGaolTether = 0xBF, // gaol pairing marker (2 players share)
+    PulseOfTheLandSpread = 0xB9, // Yellow Spread - verified (replay)
+    ForceOfTheLandStack = 0xBA, // Orange Stack - verified (replay)
+    CrumblingDownBomb = 0x17, // Bomb on you (precedes Crumbling Down) - verified (replay)
+    WeightOfTheWorldSingle = 0xBB, // Blue single-target weight - verified (replay, 1 occurrence)
+    MegalithStack = 0x5D, // shared tankbuster stack marker - cactbot, unverified
+    GraniteGaolTether = 0xBF, // gaol pairing marker - cactbot, unverified
 }

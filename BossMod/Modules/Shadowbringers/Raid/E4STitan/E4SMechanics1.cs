@@ -59,14 +59,22 @@ class SeismicWave(BossModule module) : Components.CastCounter(module, (uint)AID.
 class PulseOfTheLand(BossModule module) : Components.SpreadFromIcon(module, (uint)IconID.PulseOfTheLandSpread, (uint)AID.PulseOfTheLand, 6, 5);
 class ForceOfTheLand(BossModule module) : Components.StackWithIcon(module, (uint)IconID.ForceOfTheLandStack, (uint)AID.ForceOfTheLand, 6, 5);
 
-// ---- Evil Earth: ground pattern markers, cactbot itself only tells players to "look for the marker"
-// (no fixed safe zone data) - surfaced as a plain warning so at least the AI/player knows to be alert ----
-class EvilEarth(BossModule module) : Components.CastCounter(module, (uint)AID.EvilEarth)
+// ---- Weight of the Land: 1.8s boss telegraph (WeightOfTheLandVisual), then the helper drops ~6y
+// circle puddles on a 4x4 grid that go off after a 4.7s cast. Radius is a best-effort estimate
+// (matches Ex3Titan's WeightOfTheLandAOE). This is the single highest-frequency mechanic in the
+// fight (160 casts in the analysed replay) and was previously completely untelegraphed. ----
+class WeightOfTheLand(BossModule module) : Components.SimpleAOEs(module, (uint)AID.WeightOfTheLand, 6);
+
+// ---- Evil Earth: 3.8s boss telegraph, then the helper drops ~6y circle puddles on the grid (4.7s
+// cast). Previously this was only a text warning because cactbot has no safe-zone data - now that we
+// have the real helper AOE id (0x410C) we can draw the actual danger circles. ----
+class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.EvilEarthAOE, 6)
 {
     public override void AddHints(int slot, Actor actor, TextHints hints)
     {
-        if (NumCasts > 0 && Module.PrimaryActor.CastInfo != null && WorldState.CurrentTime < Module.CastFinishAt(Module.PrimaryActor.CastInfo).AddSeconds(3))
-            hints.Add(Loc.T("Watch for Evil Earth ground markers!"), false);
+        base.AddHints(slot, actor, hints);
+        if (Casters.Count == 0 && Module.PrimaryActor.CastInfo?.Action.ID == (uint)AID.EvilEarth)
+            hints.Add(Loc.T("Evil Earth - dodge the ground markers!"), false);
     }
 }
 
@@ -105,18 +113,16 @@ class Geocrush(BossModule module) : Components.GenericKnockback(module, (uint)AI
     {
         if (spell.Action.ID == WatchedAction)
         {
+            // replay-confirmed: spell.LocXZ carries a valid edge landing point for every Geocrush cast,
+            // so the fallback is essentially never hit.
             _origin = spell.LocXZ != default ? spell.LocXZ : caster.Position;
             _resolveAt = Module.CastFinishAt(spell);
-            // DEBUG (temporary): print what we captured so we can tell from chat whether
-            // spell.LocXZ actually carries a valid ground-telegraph location for this ability, or
-            // whether it came back as the (0,0) default and we silently fell back to caster.Position.
-            Service.ChatGui.Print($"[E4S debug] action {spell.Action.ID:X} origin captured: {_origin} (from {(spell.LocXZ != default ? "spell.LocXZ" : "caster.Position fallback")}), caster currently at {caster.Position}, resolves in {(_resolveAt - WorldState.CurrentTime).TotalSeconds:F1}s");
         }
     }
 }
 
 // ---- Dual Earthen Fists: raidwide + knockback, same treatment as Geocrush (push distance estimated,
-// cast-location-not-live-position fix applied the same way). ----
+// cast-location-not-live-position fix applied the same way; replay-confirmed LocXZ is populated). ----
 class DualEarthenFists(BossModule module) : Components.GenericKnockback(module, (uint)AID.DualEarthenFists)
 {
     private WPos _origin;
@@ -136,10 +142,6 @@ class DualEarthenFists(BossModule module) : Components.GenericKnockback(module, 
         {
             _origin = spell.LocXZ != default ? spell.LocXZ : caster.Position;
             _resolveAt = Module.CastFinishAt(spell);
-            // DEBUG (temporary): print what we captured so we can tell from chat whether
-            // spell.LocXZ actually carries a valid ground-telegraph location for this ability, or
-            // whether it came back as the (0,0) default and we silently fell back to caster.Position.
-            Service.ChatGui.Print($"[E4S debug] action {spell.Action.ID:X} origin captured: {_origin} (from {(spell.LocXZ != default ? "spell.LocXZ" : "caster.Position fallback")}), caster currently at {caster.Position}, resolves in {(_resolveAt - WorldState.CurrentTime).TotalSeconds:F1}s");
         }
     }
 }

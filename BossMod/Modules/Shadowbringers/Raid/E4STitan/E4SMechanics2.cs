@@ -3,12 +3,17 @@ namespace BossMod.Shadowbringers.Raid.E4STitan;
 // ---- Landslide family: big frontal/side cleaves + directional knockback variants.
 // Shapes are estimated from cactbot's callouts + Ex3Titan's near-identical attacks (same boss
 // "personality", same names) - verify radii/angles once actually tested in-game.
+//
+// REPLAY CAVEAT: the "Gauntlets"/"Wheels"/"Armor" selectors (0x40E6/E7/E8/E9) and MassiveLandslideSides
+// (0x4117) are all INSTANT in the replay - no cast bar - so the boss.CastInfo / OnCastStarted logic in
+// MassiveLandslideFront / MassiveLandslideSides / FaultLineSides never fires. Treat those three as
+// non-functional until a cast-bar variant is confirmed. The real telegraphed damage comes from the
+// follow-ups that DO have cast bars: FaultLineFront (0x411E), LandslideBackCorners (0x411A),
+// LandslideLeftRight (0x411C), MagnitudeFive (0x4121), CrumblingDown (0x410E), GiantRockLandslide (0x410F).
 
-// "Landslide: In Front" (大地之手甲/Earthen Gauntlets, AID 40E6) - user confirmed via combat log
-// this is what actually knocked them off the platform, NOT just a frontal damage cone like cactbot's
-// plain "Landslide: In Front" callout implied - it's a frontal cone knockback (only players caught
-// in the cone get pushed), same origin-capture/debug-print approach as Geocrush since this is the
-// same "boss aligns with a ground telegraph, then knocks back from there" pattern.
+// "Landslide: In Front" (大地之手甲/Earthen Gauntlets, AID 40E6) - user reported via combat log this
+// knocked them off the platform; see the instant caveat above - the actual knockback likely resolves
+// through one of the cast-bar follow-ups, not 0x40E6 itself.
 class MassiveLandslideFront(BossModule module) : Components.GenericKnockback(module, (uint)AID.MassiveLandslideFront)
 {
     private static readonly AOEShapeCone _shape = new(24, 60.Degrees());
@@ -33,13 +38,19 @@ class MassiveLandslideFront(BossModule module) : Components.GenericKnockback(mod
             _origin = spell.LocXZ != default ? spell.LocXZ : caster.Position;
             _rotation = spell.Rotation;
             _resolveAt = Module.CastFinishAt(spell);
-            Service.ChatGui.Print($"[E4S debug] MassiveLandslideFront (40E6) origin captured: {_origin} (from {(spell.LocXZ != default ? "spell.LocXZ" : "caster.Position fallback")}), caster currently at {caster.Position}, resolves in {(_resolveAt - WorldState.CurrentTime).TotalSeconds:F1}s");
         }
     }
 }
 
-// "Back Corners" - safe in back corners of the arena (danger is a frontal + side cone from boss)
+// "Back Corners" - safe in back corners of the arena (danger is a frontal + side cone from boss).
+// Replay: boss casts 0x411A (4.1s) with a helper 0x411B (4.7s), telegraphs centered on the arena
+// mid-line (100, 90/110) - the cone shape/angle here is still a cactbot-derived estimate.
 class LandslideBackCorners(BossModule module) : Components.SimpleAOEs(module, (uint)AID.LandslideBackCorners, new AOEShapeCone(24, 120.Degrees()));
+
+// ---- Giant Rock landslide: the Giant Rock adds (OID 0x2992) each cast a ~6y circle landslide
+// (0x410F, 4.7s) scattered across the arena, alongside the boss's own Crumbling Down. Radius is a
+// best-effort estimate. verified (replay). ----
+class GiantRockLandslide(BossModule module) : Components.SimpleAOEs(module, (uint)AID.GiantRockLandslide, 6);
 
 // "Massive Landslide - Sides" (right/left simultaneous) - safe in front/back
 class MassiveLandslideSides(BossModule module) : Components.GenericAOEs(module, (uint)AID.MassiveLandslideSides)
@@ -125,21 +136,22 @@ class FaultLineSides(BossModule module) : Components.GenericAOEs(module, (uint)A
     }
 }
 
-// "Tank Charge" - line stare/charge at current MT's position
+// "Fault Line" tank line - 0x411E (2.7s), boss casts it targeting the marked tank. verified (replay).
 class FaultLineFront(BossModule module) : Components.CastCounter(module, (uint)AID.FaultLineFront)
 {
     public override void AddHints(int slot, Actor actor, TextHints hints)
     {
         if (NumCasts == 0 && Module.PrimaryActor.CastInfo?.Action.ID == (uint)AID.FaultLineFront)
-            hints.Add(Loc.T("Tank charge incoming - non-tanks stay clear of the tank's line!"), false);
+            hints.Add(Loc.T("Tank line incoming - non-tanks stay clear of the tank's line!"), false);
     }
 }
 
-// ---- Bomb Boulders: adds spawn on a fixed 3x3 grid (west/mid/east on each axis), explode via
-// BuryDirections. Cactbot's own data says the safe-zone pattern depends on the current phase
-// ("landslide" = corners-then-cardinals or reverse; "armor" = hide behind east/west half) - that
-// phase-dependent branching logic isn't something a generic AOE component can express well, so this
-// just telegraphs each bomb's actual blast radius from its position/cast, which is the reliable part. ----
+// ---- Bomb Boulders: adds spawn on a fixed 3x3 grid (X/Z in {86,100,114}), each explodes via a 4.7s
+// BombBoulderAOE (0x410A) cast - verified (replay). Cactbot's own data says the safe-zone pattern
+// depends on the current phase ("landslide" = corners-then-cardinals or reverse; "armor" = hide behind
+// east/west half) - that phase-dependent branching isn't something a generic AOE component can express
+// well, so this just telegraphs each bomb's actual blast radius from its cast, which is the reliable
+// part. Radius 6 is a best-effort estimate. ----
 class BombBoulders(BossModule module) : Components.GenericAOEs(module)
 {
     private static readonly AOEShapeCircle _shape = new(6);
@@ -148,8 +160,8 @@ class BombBoulders(BossModule module) : Components.GenericAOEs(module)
         var bombs = ((E4STitan)Module).Bombs;
         List<AOEInstance> aoes = [];
         foreach (var b in bombs)
-            if (b.CastInfo != null)
-                aoes.Add(new(_shape, b.Position, default, Module.CastFinishAt(b.CastInfo)));
+            if (b.CastInfo?.Action.ID == (uint)AID.BombBoulderAOE)
+                aoes.Add(new(_shape, b.CastInfo.LocXZ != default ? b.CastInfo.LocXZ : b.Position, default, Module.CastFinishAt(b.CastInfo)));
         return CollectionsMarshal.AsSpan(aoes);
     }
 }
