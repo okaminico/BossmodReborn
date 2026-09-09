@@ -86,12 +86,13 @@ public enum AID : uint
     // ---- Titan Maximum phase ----
     EarthenFury = 0x4124, // BossMaximum->self, 5.7s cast, raidwide - verified (replay), id 16676
     EarthenFuryHelper = 0x43E8, // Helper->self, 7.2s cast, actual raidwide hit - verified (replay), id 17384
-    EarthenFuryBleed = 0x413A, // BossMaximum->self, cast, raidwide + bleed - cactbot, unverified, id 16698
-    EarthenFuryEnrage = 0x4140, // BossMaximum->self, cast, enrage - cactbot, unverified, id 16704
-    ContinentalOverlay = 0x4129, // Helper->self, no cast, x6 burst raidwide in Maximum phase (likely the
-                                 // repeating "Tumult"-style raidwide) - verified (replay), id 16681
+    EarthenFuryBleed = 0x413A, // BossMaximum->self, cast, raidwide + Filthy bleed - used all through the FINAL
+                               // phase (after OrogenesisFinal) - cactbot e4s.ts, unverified, id 16698
+    EarthenFuryEnrage = 0x4140, // BossMaximum->self, cast, hard enrage (~t+1581 on cactbot's timeline) - id 16704
+    ContinentalOverlayEffect = 0x4129, // Helper->self, no cast, x6 burst seen in replay - cactbot's -ii list marks
+                                       // this an ignored effect; the real repeating raidwide is Tumult (0x412A). id 16681
 
-    EarthenAnguish = 0x4137, // Boss->player, cast, tankbuster - verified (replay, 1 instant occurrence), id 16695
+    EarthenAnguish = 0x4137, // Titan->player, tankbuster, always paired with Dual Earthen Fists - cactbot e4s.ts, id 16695
 
     EarthenFistLeftRight = 0x412F, // BossMaximum->self, 6.7s cast, left then right - verified (replay), id 16687
     EarthenFistRightLeft = 0x4130, // BossMaximum->self, cast - cactbot, unverified, id 16688
@@ -105,16 +106,21 @@ public enum AID : uint
     DualEarthenFistsHelperA = 0x4136, // Helper->self, 4.7s cast - verified (replay), id 16694
     DualEarthenFistsHelperB = 0x4687, // Helper->self, 5.1s cast - verified (replay), id 18055
 
-    Megalith = 0x4138, // BossMaximum->player, cast, shared tankbuster stack - cactbot, unverified, id 16696
-    TectonicUplift = 0x4122, // BossMaximum->self, cast, arena-wide - cactbot, unverified, id 16674
-    RockThrow = 0x412D, // BossMaximum->player, no cast, gaol tether setup (icon 00BF) - cactbot, unverified, id 16685
-    WeightOfTheWorld = 0x442B, // BossMaximum->player, no cast, single-target heavy (icon 00BB) - cactbot, unverified, id 17451
-    Tumult = 0x412A, // BossMaximum->self, no cast, repeating raidwide - cactbot, unverified (see ContinentalOverlay 0x4129), id 16682
+    Megalith = 0x4138, // BossMaximum->player, shared tankbuster stack (headmarker 005D) - cactbot e4s.ts, unverified, id 16696
+    TectonicUplift = 0x4122, // BossMaximum->self, cast, terrain-raise / arena-shrink - cactbot e4s.ts, unverified, id 16674
+    RockThrow = 0x412D, // BossMaximum->player, no cast, gaol tether setup (icon 00BF) - cactbot e4s.ts, unverified, id 16685
+    WeightOfTheWorld = 0x442B, // BossMaximum->player, no cast, single-target heavy (icon 00BB) - cactbot e4s.ts, unverified, id 17451
+    Tumult = 0x412A, // BossMaximum->self, cast, repeating raidwide x5 over ~6s - cactbot e4s.ts confirms this ID, unverified in replay, id 16682
 
-    PlateFractureFrontRight = 0x4125, // Boss->self, cast, quadrant AOE - cactbot, unverified, id 16677
-    PlateFractureBackRight = 0x4126, // Boss->self, cast, quadrant AOE - cactbot, unverified, id 16678
-    PlateFractureBackLeft = 0x4127, // Boss->self, cast, quadrant AOE - cactbot, unverified, id 16679
-    PlateFractureFrontLeft = 0x4128, // Boss->self, cast, quadrant AOE - cactbot, unverified, id 16680
+    // Plate Fracture: cactbot e4s.ts confirms these 4 IDs, StartsUsing, source Titan Maximum (NOT Titan).
+    // 3-then-2 CW/CCW quadrant sequence. Timeline id 0x43EA is the separate floor-break effect.
+    PlateFractureFrontRight = 0x4125, // BossMaximum->self, cast - cactbot e4s.ts, unverified, id 16677
+    PlateFractureBackRight = 0x4126, // BossMaximum->self, cast - cactbot e4s.ts, unverified, id 16678
+    PlateFractureBackLeft = 0x4127, // BossMaximum->self, cast - cactbot e4s.ts, unverified, id 16679
+    PlateFractureFrontLeft = 0x4128, // BossMaximum->self, cast - cactbot e4s.ts, unverified, id 16680
+    PlateFractureEffect = 0x43EA, // Titan->self, the floor-break ("Plate Fracture 1/2/3" on cactbot's timeline) - id 17386
+
+    OrogenesisFinal = 0x4372, // BossMaximum->self, cast, transition into the final (bleed + enrage) phase - cactbot e4s.ts, id 17266
 }
 
 public enum SID : uint

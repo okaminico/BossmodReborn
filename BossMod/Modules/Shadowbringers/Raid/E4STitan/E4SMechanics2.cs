@@ -151,12 +151,13 @@ class BombBoulders(BossModule module) : Components.GenericAOEs(module)
     }
 }
 
-// ---- Plate Fracture (岩盘粉碎): huijiwiki - Titan Maximum DESTROYS 2x2 regions of the arena one by
-// one in CW/CCW order (3 regions in the first round, 2 in the second), leaving one 2x2 quadrant safe.
-// This is a floor-drop / arena-shrink mechanic, NOT a damage cone - the code below (cactbot-derived
-// 45deg cones per quadrant, IDs 0x4125-0x4128) is UNVERIFIED: it never occurred in the analysed
-// replay, and if the real mechanic is an arena-shrink the cone shape is wrong anyway. Treat as a
-// placeholder until a Titan-Maximum-phase replay is available. ----
+// ---- Plate Fracture (岩盤粉碎): cactbot e4s.ts confirms IDs 0x4125 (front-right) / 0x4126 (back-right)
+// / 0x4127 (back-left) / 0x4128 (front-left), StartsUsing, source **Titan Maximum** - a 3-then-2 CW/CCW
+// quadrant sequence (huijiwiki: the named 2x2 region of the arena breaks away). cactbot's callout is
+// purely "which named quadrant is dangerous -> move to the surviving one", so a 90deg quadrant cone
+// from the boss is a fair approximation of the danger. Still unverified in a real replay; the cast is
+// on Titan Maximum, NOT the primary Titan actor (that was the earlier bug that made this dead code).
+// The separate timeline id 0x43EA "Plate Fracture 1/2/3" is the floor-break effect, not the cast. ----
 class PlateFracture(BossModule module) : Components.GenericAOEs(module)
 {
     private static readonly (AID aid, Angle dir)[] _quadrants =
@@ -170,8 +171,8 @@ class PlateFracture(BossModule module) : Components.GenericAOEs(module)
 
     public override ReadOnlySpan<AOEInstance> ActiveAOEs(int slot, Actor actor)
     {
-        var boss = Module.PrimaryActor;
-        if (boss.CastInfo == null)
+        var boss = ((E4STitan)Module).BossMaximum();
+        if (boss?.CastInfo == null)
             return [];
         foreach (var (aid, dir) in _quadrants)
         {
