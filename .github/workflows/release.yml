@@ -1,38 +1,67 @@
 # 2026-09-05 repo 重建(切斷 fork 網路)後,這個 workflow 需要一次 push 才會重新註冊。
+#
+# 這個 workflow 一律針對 tw-fix 分支運作。觸發方式:
+#   1. push 到 tw-fix(程式碼變更)→ 從 repo.json 現有版號 bump 最後一段 → build → 更新
+#      repo.json 的 DownloadLink → commit 回 tw-fix → 建 tag v<ver> + 發 release + 上傳 BossModReborn.zip
+#   2. workflow_dispatch → 可在 version 欄填死版本號;留空則同上自動 bump
+#
+# 不會迴圈:repo.json / .github / *.md 變更被 paths-ignore 排除,而且 bot 用 GITHUB_TOKEN 推的
+# commit 本來就不會再觸發 workflow(雙保險)。
 name: Release
 on:
+  push:
+    branches: [tw-fix]
+    paths-ignore:
+      - 'repo.json'
+      - 'BossMod/BuildNumber.txt'
+      - '.github/**'
+      - '**.md'
+      - 'LICENSE'
   workflow_dispatch:
     inputs:
       version:
-        description: "版本號 major[.minor[.build[.revision]]]（從分支手動觸發時必填；用 tag 觸發可留空,會取 tag 名）"
+        description: "版本號 major[.minor[.build[.revision]]]（留空則自動從 repo.json bump 最後一段）"
         required: false
         type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   Build:
     permissions:
       contents: write
     runs-on: windows-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout tw-fix
         uses: actions/checkout@v4
         with:
+          ref: tw-fix
+          fetch-depth: 0
           submodules: true
 
-      - name: Get Environment Variables
+      - name: Configure git identity
         run: |
-          $tag = "${{ inputs.version }}".Trim()
-          if (-not $tag) {
-            $ref = "${{ github.ref }}"
-            if ($ref -notlike 'refs/tags/*') {
-              throw "從分支觸發時必須在 inputs.version 填版本號 (github.ref=$ref)"
-            }
-            $tag = $ref -replace '^refs/tags/', '' -replace '^v', ''
-          }
-          if ($tag -notmatch '^\d+(\.\d+){0,3}$') {
-            throw "版本號 '$tag' 不符合 major[.minor[.build[.revision]]]"
-          }
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          "tag=$tag" | Out-File -Append -FilePath $Env:GITHUB_ENV
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          $ver = "${{ inputs.version }}".Trim()
+          if (-not $ver) {
+            $current = (Get-Content -Raw repo.json | ConvertFrom-Json)[0].AssemblyVersion
+            $p = $current -split '\.'
+            while ($p.Count -lt 4) { $p += '0' }
+            $ver = "$($p[0]).$($p[1]).$($p[2])." + ([int]$p[3] + 1)
+          }
+          if ($ver -notmatch '^\d+(\.\d+){0,3}$') {
+            throw "版本號 '$ver' 不符合 major[.minor[.build[.revision]]]"
+          }
+          "ver=$ver"        | Out-File -Append -FilePath $Env:GITHUB_ENV
+          "reltag=v$ver"    | Out-File -Append -FilePath $Env:GITHUB_ENV
+          Write-Host "resolved version: $ver (release tag v$ver)"
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
@@ -48,19 +77,44 @@ jobs:
         run: dotnet restore BossMod\BossModReborn.csproj
 
       - name: Build Plugin
-        run: dotnet build --no-restore -c Release BossMod\BossModReborn.csproj -p:Version=${{ env.tag }} -p:AssemblyVersion=${{ env.tag }} -p:FileVersion=${{ env.tag }} -p:InformationalVersion=${{ env.tag }} --output .\build
+        run: dotnet build --no-restore -c Release BossMod\BossModReborn.csproj -p:Version=${{ env.ver }} -p:AssemblyVersion=${{ env.ver }} -p:FileVersion=${{ env.ver }} -p:InformationalVersion=${{ env.ver }}
 
-      - name: Zip Plugin
-        run: Compress-Archive -Path .\build\* -DestinationPath .\build\BossModReborn.zip
+      - name: Package artifact
+        shell: pwsh
+        run: |
+          $src = 'BossMod/bin/Release/BossModReborn/latest.zip'
+          if (-not (Test-Path $src)) { throw "找不到建置產物 $src" }
+          Copy-Item $src -Destination 'BossModReborn.zip' -Force
+
+      - name: Update repo.json
+        shell: pwsh
+        run: |
+          $url = "https://github.com/${{ github.repository }}/releases/download/${{ env.reltag }}/BossModReborn.zip"
+          $changelog = (git log -1 --pretty=%s).Trim()
+          $json = Get-Content -Raw repo.json | ConvertFrom-Json
+          $json[0].AssemblyVersion = "${{ env.ver }}"
+          $json[0].DownloadLinkInstall = $url
+          $json[0].DownloadLinkUpdate = $url
+          $json[0].Changelog = "$changelog（$(Get-Date -Format 'yyyy-MM-dd')）"
+          $json | ConvertTo-Json -Depth 10 -AsArray | Set-Content -Path repo.json -Encoding utf8
+
+      - name: Commit repo.json back to tw-fix
+        shell: pwsh
+        run: |
+          git add repo.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { Write-Host "repo.json 無變更,跳過"; exit 0 }
+          git commit -m "release: repo.json -> ${{ env.ver }} [skip ci]"
+          git pull --rebase origin tw-fix
+          git push origin tw-fix
 
       - name: Publish Plugin
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.tag }}
-          target_commitish: ${{ github.sha }}
-          files: |
-            ./build/BossModReborn.zip
-            ./build/BossModReborn.json
+          tag_name: ${{ env.reltag }}
+          target_commitish: tw-fix
+          name: "BossModReborn ${{ env.ver }}"
+          files: BossModReborn.zip
           token: ${{ secrets.GITHUB_TOKEN }}
 
 # 2026-08-16: repo 重建後 workflow_dispatch-only workflow 未被 Actions 重新註冊,touch 本檔強制重掃

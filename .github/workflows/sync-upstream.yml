@@ -76,8 +76,9 @@ jobs:
         shell: pwsh
         run: |
           $current = (Get-Content -Raw repo.json | ConvertFrom-Json)[0].AssemblyVersion
-          $currentBuild = [int]($current -split '\.')[3]
-          $ver = "7.15.0." + ($currentBuild + 1)
+          $p = $current -split '\.'
+          while ($p.Count -lt 4) { $p += '0' }
+          $ver = "$($p[0]).$($p[1]).$($p[2])." + ([int]$p[3] + 1)
           dotnet build --configuration Release BossMod/BossModReborn.csproj -p:DalamudLibPath="$env:AppData\FFXIVSimpleLauncher\Dalamud\Injector\" -p:Version=$ver -p:AssemblyVersion=$ver -p:FileVersion=$ver
           if ($LASTEXITCODE -ne 0) {
             "status=failed" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
