@@ -83,43 +83,38 @@ class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.Evi
 }
 
 // ---- Shared knockback helper. REPLAY-MEASURED push distance: Geocrush launched the player 22-30y
-// across 6 clean samples (the old 15y guess was ~half the real value, which is why the AI kept dying -
-// it braced for 15 and got thrown 13y further, off the platform). All three E4S knockbacks
-// (Geocrush / Landslide L-R / Dual Earthen Fists) are the same "boss jumps to a point, then shoves
-// everyone straight away from that point" pattern, so they share this.
+// across 6 clean samples (the old 15y guess was ~half the real value - the AI braced for 15, got
+// thrown 13y further, off the platform). All three E4S knockbacks (Geocrush / Landslide L-R / Dual
+// Earthen Fists) are the same "boss jumps to a point, then shoves everyone straight away from it".
 //
-// The AI hint forbids "anywhere a 30y shove away from the origin would put you outside the arena",
-// with a smooth gradient (how-many-yalms out-of-bounds) so the pathfinder drifts toward the *most*
-// safely-inside spot rather than settling on the first merely-legal cell. That lets the AI stay as
-// close to the boss as it safely can, instead of the old InvertedCircle(origin,2) which force-marched
-// it onto the origin point (itself near an edge) and let the shove carry it off the far side.
-//
-// Activation is set ~1.3s EARLIER than the real resolve: a knockback needs you SETTLED at the brace
-// spot, not mid-transit, when it fires - the default "leave at the last second" pathing (only ~1s of
-// cushion) was landing the AI in the wrong place. Predicted damage still uses the true resolve time.
+// AI hint: the ONLY spot that reliably survives a 30y shove from a near-the-edge origin is right up
+// against that origin (hug it -> the shove carries you ~30y across to land safely mid-arena; stand
+// even a few yalms out and you overshoot the far wall). So we forbid everything except a tight disc
+// on the origin. A small, fixed target also stops the mid-cast jitter that a broad "anywhere legal"
+// zone caused (reported: "reaches a spot, then moves again right before it resolves") - with one
+// small attractor the pathfinder commits and holds instead of chasing the wandering optimum.
 static class E4SKnockback
 {
     public const float Distance = 30f;
-    public const double PositionLeadTime = 1.3d;
+    public const float BraceRadius = 3f;
 
     public static void AddHint(BossModule module, AIHints hints, WPos origin, DateTime resolveAt)
     {
         hints.AddPredictedDamage(module.Raid.WithSlot().Mask(), resolveAt);
         if (resolveAt <= module.WorldState.CurrentTime)
             return;
+        // 1) small attractor: stay hugging the origin (anti-jitter + the only reliably-safe area)
+        hints.AddForbiddenZone(ShapeDistance.InvertedCircle(origin, BraceRadius), resolveAt);
+        // 2) hard backstop: never stand where the shove itself would put you off the arena (catches
+        //    the "wrong side of the origin" cells that (1) alone would still allow)
         var bounds = module.Arena.Bounds;
         var center = module.Arena.Center;
-        var activation = resolveAt.AddSeconds(-PositionLeadTime);
-        if (activation <= module.WorldState.CurrentTime)
-            activation = module.WorldState.CurrentTime;
         hints.AddForbiddenZone(p =>
         {
             var landing = p != origin ? p + Distance * (p - origin).Normalized() : p;
             var off = landing - center;
-            var clamped = bounds.ClampToBounds(off);
-            var outBy = (off - clamped).Length();
-            return outBy > 0f ? -outBy : 1f; // negative == forbidden, magnitude == yalms past the wall
-        }, activation);
+            return (off - bounds.ClampToBounds(off)).LengthSq() > 0.01f ? -1f : 1f;
+        }, resolveAt);
     }
 }
 
