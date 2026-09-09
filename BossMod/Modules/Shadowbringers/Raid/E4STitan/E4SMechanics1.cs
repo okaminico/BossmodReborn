@@ -82,64 +82,67 @@ class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.Evi
     }
 }
 
-// ---- Geocrush: raidwide + knockback away from boss. Cactbot doesn't give an exact push distance;
-// 15y is the typical Titan-family value (matches Ex3Titan's Upheaval/Landslide push), tune if wrong.
-// This is one of the two mechanics reported as "AI doesn't dodge the knockback" - the fix here is
-// AddAIHints bracing the player near a wall-adjacent safe spot rather than trying to outrun it.
+// ---- Shared knockback helper. REPLAY-MEASURED push distance: Geocrush launched the player 22-30y
+// across 6 clean samples (the old 15y guess was ~half the real value, which is why the AI kept dying -
+// it braced for 15 and got thrown 13y further, off the platform). All three E4S knockbacks
+// (Geocrush / Landslide L-R / Dual Earthen Fists) are the same "boss jumps to a point, then shoves
+// everyone straight away from that point" pattern, so they share this.
 //
-// IMPORTANT: the boss visibly jumps to a fixed "Geocrush center" partway through the cast, and the
-// knockback resolves from THAT point, not from wherever the boss happened to be standing when the
-// cast started. The cast packet carries this destination up front (ActorCastInfo.Location/LocXZ,
-// populated by the server at cast-start even for a "self-targeted" ability like this one) - using
-// that instead of the live PrimaryActor.Position means the AI knows the true landing spot for the
-// entire cast, instead of only reacting once the boss visually arrives there (which per user report
-// happens late enough in the cast that there wasn't time left to react). Falls back to the boss's
-// position at cast-start if LocXZ ever comes back as an obviously-invalid zero. ----
+// The AI hint is "don't stand anywhere that a 30y shove away from the origin would put you outside the
+// arena" (via Module.InBounds on the projected landing point). That lets the AI stay as close to the
+// boss as it safely can, instead of the old InvertedCircle(origin,2) which force-marched it onto the
+// origin point (which is itself near an edge) and then let the shove carry it off the far side.
+static class E4SKnockback
+{
+    public const float Distance = 30f;
+
+    public static void AddHint(BossModule module, AIHints hints, WPos origin, DateTime resolveAt)
+    {
+        hints.AddPredictedDamage(module.Raid.WithSlot().Mask(), resolveAt);
+        if (resolveAt <= module.WorldState.CurrentTime)
+            return;
+        hints.AddForbiddenZone(p =>
+        {
+            var landing = p != origin ? p + Distance * (p - origin).Normalized() : p;
+            return module.InBounds(landing) ? 1f : -1f;
+        }, resolveAt);
+    }
+}
+
+// ---- Geocrush: raidwide + knockback straight away from the point the boss jumps to. That point is
+// carried up front in ActorCastInfo.LocXZ (replay-confirmed populated on every cast), so the AI knows
+// the true origin for the whole cast rather than only once the boss visually arrives. ----
 class Geocrush(BossModule module) : Components.GenericKnockback(module, (uint)AID.Geocrush)
 {
     private WPos _origin;
     private DateTime _resolveAt;
     public override ReadOnlySpan<Knockback> ActiveKnockbacks(int slot, Actor actor)
-        => _resolveAt > WorldState.CurrentTime ? new Knockback[] { new(_origin, 15, _resolveAt) } : [];
+        => _resolveAt > WorldState.CurrentTime ? new Knockback[] { new(_origin, E4SKnockback.Distance, _resolveAt) } : [];
 
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
-    {
-        hints.AddPredictedDamage(Raid.WithSlot().Mask(), _resolveAt);
-        if (_resolveAt > WorldState.CurrentTime)
-        {
-            // margin tightened (was 4, a died-to-this report showed that wasn't enough) since both
-            // the 15y push distance and the 20y arena half-width are themselves estimates - erring
-            // toward "stand very close" costs little and buys a buffer against those being off.
-            hints.AddForbiddenZone(ShapeDistance.InvertedCircle(_origin, 2), _resolveAt);
-        }
-    }
+        => E4SKnockback.AddHint(Module, hints, _origin, _resolveAt);
+
     public override void OnCastStarted(Actor caster, ActorCastInfo spell)
     {
         if (spell.Action.ID == WatchedAction)
         {
-            // replay-confirmed: spell.LocXZ carries a valid edge landing point for every Geocrush cast,
-            // so the fallback is essentially never hit.
             _origin = spell.LocXZ != default ? spell.LocXZ : caster.Position;
             _resolveAt = Module.CastFinishAt(spell);
         }
     }
 }
 
-// ---- Dual Earthen Fists: raidwide + knockback, same treatment as Geocrush (push distance estimated,
-// cast-location-not-live-position fix applied the same way; replay-confirmed LocXZ is populated). ----
+// ---- Dual Earthen Fists: raidwide + knockback, same "shove away from LocXZ" pattern as Geocrush. ----
 class DualEarthenFists(BossModule module) : Components.GenericKnockback(module, (uint)AID.DualEarthenFists)
 {
     private WPos _origin;
     private DateTime _resolveAt;
     public override ReadOnlySpan<Knockback> ActiveKnockbacks(int slot, Actor actor)
-        => _resolveAt > WorldState.CurrentTime ? new Knockback[] { new(_origin, 15, _resolveAt) } : [];
+        => _resolveAt > WorldState.CurrentTime ? new Knockback[] { new(_origin, E4SKnockback.Distance, _resolveAt) } : [];
 
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
-    {
-        hints.AddPredictedDamage(Raid.WithSlot().Mask(), _resolveAt);
-        if (_resolveAt > WorldState.CurrentTime)
-            hints.AddForbiddenZone(ShapeDistance.InvertedCircle(_origin, 2), _resolveAt);
-    }
+        => E4SKnockback.AddHint(Module, hints, _origin, _resolveAt);
+
     public override void OnCastStarted(Actor caster, ActorCastInfo spell)
     {
         if (spell.Action.ID == WatchedAction)

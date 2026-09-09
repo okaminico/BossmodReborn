@@ -74,45 +74,28 @@ class MassiveLandslideSides(BossModule module) : Components.GenericAOEs(module, 
     }
 }
 
-// "Right/Left Landslide" - directional rect knockback along one side of the boss
+// "左側/右側地裂 (Left/Right Landslide)" - the Gauntlets-combo half-arena landslide that follows the
+// 地裂 cross. huijiwiki: half-arena AOE + a big knockback + aftershock. REPLAY: this was killing the AI
+// by shoving it ~25-28y off the platform edge (twice a fall death), same as Geocrush. Modelling the
+// knockback as "shove straight away from the cast point (LocXZ), 30y" + the shared landing-in-bounds
+// AI hint. The half-arena damage side (dodge left vs right) is not modelled yet - the fall deaths were
+// the knockback, not the AOE.
 class LandslideDirectional(BossModule module) : Components.GenericKnockback(module, (uint)AID.LandslideLeftRight)
 {
-    private static readonly AOEShapeRect _shape = new(40, 3);
+    private WPos _origin;
     private DateTime _resolveAt;
-    private Kind _kind;
 
     public override ReadOnlySpan<Knockback> ActiveKnockbacks(int slot, Actor actor)
-        => _resolveAt > WorldState.CurrentTime
-            ? new Knockback[] { new(Module.PrimaryActor.Position, 15, _resolveAt, _shape, Module.PrimaryActor.Rotation, _kind) }
-            : [];
+        => _resolveAt > WorldState.CurrentTime ? new Knockback[] { new(_origin, E4SKnockback.Distance, _resolveAt) } : [];
 
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
-    {
-        hints.AddPredictedDamage(Raid.WithSlot().Mask(), _resolveAt);
-        if (_resolveAt > WorldState.CurrentTime && _kind is Kind.DirLeft or Kind.DirRight)
-        {
-            // this is a directional push (not away-from-center like Geocrush), so the safety margin
-            // has to be measured along the actual push direction, from the boss's ACTUAL position
-            // (not a guessed arena-center coordinate - same reasoning as the Geocrush fix). Margin
-            // kept tight (2y) since the 15y push distance and 20y arena half-width are both
-            // estimates - a knocked-off-platform death from Geocrush already showed those estimates
-            // being slightly off is enough to matter, so err on the side of standing very close.
-            var pushDir = (Module.PrimaryActor.Rotation + (_kind == Kind.DirLeft ? 90.Degrees() : -90.Degrees())).ToDirection();
-            var boundary = Module.PrimaryActor.Position + 2 * pushDir;
-            hints.AddForbiddenZone(ShapeDistance.HalfPlane(boundary, pushDir), _resolveAt);
-        }
-    }
+        => E4SKnockback.AddHint(Module, hints, _origin, _resolveAt);
 
     public override void OnCastStarted(Actor caster, ActorCastInfo spell)
     {
-        if ((AID)spell.Action.ID == AID.LandslideLeftRight)
+        if ((AID)spell.Action.ID is AID.LandslideLeftRight or AID.LandslideRightLeft)
         {
-            _kind = Kind.DirLeft;
-            _resolveAt = Module.CastFinishAt(spell);
-        }
-        else if ((AID)spell.Action.ID == AID.LandslideRightLeft)
-        {
-            _kind = Kind.DirRight;
+            _origin = spell.LocXZ != default ? spell.LocXZ : caster.Position;
             _resolveAt = Module.CastFinishAt(spell);
         }
     }
