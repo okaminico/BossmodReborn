@@ -88,24 +88,38 @@ class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.Evi
 // (Geocrush / Landslide L-R / Dual Earthen Fists) are the same "boss jumps to a point, then shoves
 // everyone straight away from that point" pattern, so they share this.
 //
-// The AI hint is "don't stand anywhere that a 30y shove away from the origin would put you outside the
-// arena" (via Module.InBounds on the projected landing point). That lets the AI stay as close to the
-// boss as it safely can, instead of the old InvertedCircle(origin,2) which force-marched it onto the
-// origin point (which is itself near an edge) and then let the shove carry it off the far side.
+// The AI hint forbids "anywhere a 30y shove away from the origin would put you outside the arena",
+// with a smooth gradient (how-many-yalms out-of-bounds) so the pathfinder drifts toward the *most*
+// safely-inside spot rather than settling on the first merely-legal cell. That lets the AI stay as
+// close to the boss as it safely can, instead of the old InvertedCircle(origin,2) which force-marched
+// it onto the origin point (itself near an edge) and let the shove carry it off the far side.
+//
+// Activation is set ~1.3s EARLIER than the real resolve: a knockback needs you SETTLED at the brace
+// spot, not mid-transit, when it fires - the default "leave at the last second" pathing (only ~1s of
+// cushion) was landing the AI in the wrong place. Predicted damage still uses the true resolve time.
 static class E4SKnockback
 {
     public const float Distance = 30f;
+    public const double PositionLeadTime = 1.3d;
 
     public static void AddHint(BossModule module, AIHints hints, WPos origin, DateTime resolveAt)
     {
         hints.AddPredictedDamage(module.Raid.WithSlot().Mask(), resolveAt);
         if (resolveAt <= module.WorldState.CurrentTime)
             return;
+        var bounds = module.Arena.Bounds;
+        var center = module.Arena.Center;
+        var activation = resolveAt.AddSeconds(-PositionLeadTime);
+        if (activation <= module.WorldState.CurrentTime)
+            activation = module.WorldState.CurrentTime;
         hints.AddForbiddenZone(p =>
         {
             var landing = p != origin ? p + Distance * (p - origin).Normalized() : p;
-            return module.InBounds(landing) ? 1f : -1f;
-        }, resolveAt);
+            var off = landing - center;
+            var clamped = bounds.ClampToBounds(off);
+            var outBy = (off - clamped).Length();
+            return outBy > 0f ? -outBy : 1f; // negative == forbidden, magnitude == yalms past the wall
+        }, activation);
     }
 }
 
