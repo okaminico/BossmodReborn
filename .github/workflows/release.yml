@@ -2,6 +2,11 @@
 name: Release
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "版本號 major[.minor[.build[.revision]]]（從分支手動觸發時必填；用 tag 觸發可留空,會取 tag 名）"
+        required: false
+        type: string
 jobs:
   Build:
     permissions:
@@ -15,10 +20,20 @@ jobs:
 
       - name: Get Environment Variables
         run: |
-          $tag = "${{ github.ref }}" -replace 'refs/tags/', '' -replace '^v', ''
+          $tag = "${{ inputs.version }}".Trim()
+          if (-not $tag) {
+            $ref = "${{ github.ref }}"
+            if ($ref -notlike 'refs/tags/*') {
+              throw "從分支觸發時必須在 inputs.version 填版本號 (github.ref=$ref)"
+            }
+            $tag = $ref -replace '^refs/tags/', '' -replace '^v', ''
+          }
+          if ($tag -notmatch '^\d+(\.\d+){0,3}$') {
+            throw "版本號 '$tag' 不符合 major[.minor[.build[.revision]]]"
+          }
 
           "tag=$tag" | Out-File -Append -FilePath $Env:GITHUB_ENV
-          
+
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
         with:
@@ -41,6 +56,8 @@ jobs:
       - name: Publish Plugin
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             ./build/BossModReborn.zip
             ./build/BossModReborn.json
