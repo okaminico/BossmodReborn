@@ -97,28 +97,37 @@ class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.Evi
 static class E4SKnockback
 {
     public const float Distance = 30f;
+    public const float HugRadius = 6f;
 
     public static void AddHint(BossModule module, AIHints hints, WPos origin, DateTime resolveAt)
     {
         hints.AddPredictedDamage(module.Raid.WithSlot().Mask(), resolveAt);
         if (resolveAt <= module.WorldState.CurrentTime)
             return;
-        var bounds = module.Arena.Bounds;
-        var center = module.Arena.Center;
-        // Only try to position for the shove when the origin sits well away from the arena centre
-        // (Geocrush / Landslide - boss jumps to an edge, hugging it is genuinely safe). For a
-        // near-centre origin (e.g. Dual Earthen Fists) no stand point avoids being thrown to the wall,
-        // so forcing one just fights the pathfinder - leave it to predicted damage + the player's own
-        // anti-knockback.
-        if ((origin - center).Length() < bounds.Radius * 0.55f)
+        var bounds = module.Bounds;
+        var center = module.Center;
+        // Only position for the shove when the origin sits well away from the arena centre (Geocrush /
+        // Landslide - the boss jumps to an edge and hugging that point is genuinely safe: the shove
+        // then carries you ~30y clean across). For a near-centre origin (Dual Earthen Fists) no stand
+        // point avoids the wall, so leave it to predicted damage + the player's own anti-knockback.
+        if ((origin - center).Length() < bounds.Radius * 0.5f)
             return;
+
+        // (1) forbidden: any cell a 30y shove away from the origin would launch off the arena.
+        //     Binary (the pathfinder only checks sign) - value magnitude is irrelevant.
         hints.AddForbiddenZone(p =>
         {
             var landing = p != origin ? p + Distance * (p - origin).Normalized() : p;
             var off = landing - center;
-            var outBy = (off - bounds.ClampToBounds(off)).Length();
-            return outBy > 0f ? -outBy : 1f;
+            return (off - bounds.ClampToBounds(off)).LengthSq() > 0.01f ? -1f : 1f;
         }, resolveAt);
+
+        // (2) goal: strongly pull the AI to HUG the origin. The forbidden zone alone just says "not
+        //     there" and leaves a big flat safe region the AI won't commit to a spot within - the
+        //     replays showed it drifting near centre and eating the full shove. Weight 40 dominates
+        //     the ~1-2 uptime weight; goal zones only rasterize while the player's cell isn't already
+        //     in imminent danger, so this pulls early in the cast and safety takes over at the end.
+        hints.GoalZones.Add(hints.GoalProximity(origin, HugRadius, 40f));
     }
 }
 
