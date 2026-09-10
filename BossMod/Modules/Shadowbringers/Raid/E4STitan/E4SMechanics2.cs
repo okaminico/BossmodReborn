@@ -121,14 +121,49 @@ class FaultLineSides(BossModule module) : Components.GenericAOEs(module, (uint)A
     }
 }
 
-// "Fault Line" tank line - 0x411E (2.7s), boss casts it targeting the marked tank. verified (replay).
-class FaultLineFront(BossModule module) : Components.CastCounter(module, (uint)AID.FaultLineFront)
+// Fault Line family (Wheels combo):
+//  - 斷層線 0x411E: 2.7s cast, boss -> marked tank, a line charge from the boss through that tank.
+//    Replay: caster at one edge, spell.LocXZ at the tank. Model as a rect boss->target so non-charged
+//    players (incl. a co-tank AI) path off it. Length/width estimated.
+//  - 斷裂帶 0x411F: INSTANT, no cast bar, but carries spell.LocXZ (a far-edge point along the boss
+//    facing) - a full-width line across the arena along the boss's facing, with aftershock. Since it's
+//    instant the initial hit can't be dodged, but showing it briefly lets the AI clear the aftershock.
+class FaultLineFront(BossModule module) : Components.GenericAOEs(module)
 {
-    public override void AddHints(int slot, Actor actor, TextHints hints)
+    private static readonly AOEShapeRect _charge = new(45f, 3f);
+    private static readonly AOEShapeRect _line = new(45f, 5f);
+    private readonly List<AOEInstance> _aoes = [];
+
+    public override ReadOnlySpan<AOEInstance> ActiveAOEs(int slot, Actor actor) => CollectionsMarshal.AsSpan(_aoes);
+
+    public override void OnCastStarted(Actor caster, ActorCastInfo spell)
     {
-        if (NumCasts == 0 && Module.PrimaryActor.CastInfo?.Action.ID == (uint)AID.FaultLineFront)
-            hints.Add(Loc.T("Tank line incoming - non-tanks stay clear of the tank's line!"), false);
+        if (spell.Action.ID == (uint)AID.FaultLineFront) // 0x411E, has a cast bar
+        {
+            var dst = spell.LocXZ != default ? spell.LocXZ : (WorldState.Actors.Find(spell.TargetID)?.Position ?? caster.Position);
+            var dir = dst != caster.Position ? (dst - caster.Position).Normalized() : caster.Rotation.ToDirection();
+            _aoes.Add(new(_charge, caster.Position, Angle.FromDirection(dir), Module.CastFinishAt(spell)));
+        }
     }
+
+    public override void OnCastFinished(Actor caster, ActorCastInfo spell)
+    {
+        if (spell.Action.ID == (uint)AID.FaultLineFront)
+            _aoes.Clear();
+    }
+
+    public override void OnEventCast(Actor caster, ActorCastEvent spell)
+    {
+        if (spell.Action.ID == (uint)AID.FaultLineHelperA) // 0x411F, instant
+        {
+            var dir = spell.TargetXZ != default && spell.TargetXZ != caster.Position
+                ? (spell.TargetXZ - caster.Position).Normalized()
+                : caster.Rotation.ToDirection();
+            _aoes.Add(new(_line, caster.Position, Angle.FromDirection(dir), WorldState.FutureTime(2.5d)));
+        }
+    }
+
+    public override void Update() => _aoes.RemoveAll(a => a.Activation < WorldState.CurrentTime.AddSeconds(-0.5d));
 }
 
 // ---- Bomb Boulders: adds spawn on a fixed 3x3 grid (X/Z in {86,100,114}), each explodes via a 4.7s

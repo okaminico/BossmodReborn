@@ -103,22 +103,21 @@ class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.Evi
     }
 }
 
-// ---- Shared knockback helper. REPLAY-MEASURED push distance: Geocrush launched the player 22-30y
-// across 6 clean samples (the old 15y guess was ~half the real value - the AI braced for 15, got
-// thrown 13y further, off the platform). All three E4S knockbacks (Geocrush / Landslide L-R / Dual
-// Earthen Fists) are the same "boss jumps to a point, then shoves everyone straight away from it".
+// ---- Shared knockback helper. REPLAY-MEASURED (2026-09-10, player hugging the origin so the sample
+// is the pure shove): Geocrush moves you ~13-16y, EXACTLY away from the cast point (spell.LocXZ) -
+// dot(shove, awayFromOrigin) = +1.00 across 18 samples. The earlier "30y" figure was a measurement
+// artefact (sampled 2.5s post-fire, i.e. shove + the AI then running). All three E4S knockbacks
+// (Geocrush / Landslide L-R / Dual Earthen Fists) share this "shove straight away from the point".
 //
-// AI hint: forbid cells from which a 30y shove away from the origin would land you off the arena,
-// with a smooth gradient (yalms past the wall) so there is ALWAYS a "least bad" answer for the
-// pathfinder. Earlier iterations used a hard InvertedCircle(origin, small) to force a tight brace -
-// but when the origin sits near the edge (or dead centre, for Dual Fists) that made the entire
-// reachable arena forbidden, the pathfinder returned no destination, and AI navigation locked up.
-// Gradient-only can never fully lock: worst case the AI walks to the spot that overshoots the wall
-// by the fewest yalms.
+// With a real ~15y shove in an r21 arena the only way to fall off is to already be near the edge
+// opposite the origin, so the AI hint is deliberately light: forbid the cells whose shove-landing
+// would be out of bounds, plus a modest goal to prefer hugging the origin. (Over-modelling this with
+// distance=30 + a hard brace circle is what made the AI panic-position onto the edge and get flung -
+// six iterations of that; don't.)
 static class E4SKnockback
 {
-    public const float Distance = 30f;
-    public const float HugRadius = 6f;
+    public const float Distance = 15f;
+    public const float HugRadius = 8f;
 
     public static void AddHint(BossModule module, AIHints hints, WPos origin, DateTime resolveAt)
     {
@@ -127,15 +126,13 @@ static class E4SKnockback
             return;
         var bounds = module.Bounds;
         var center = module.Center;
-        // Only position for the shove when the origin sits well away from the arena centre (Geocrush /
-        // Landslide - the boss jumps to an edge and hugging that point is genuinely safe: the shove
-        // then carries you ~30y clean across). For a near-centre origin (Dual Earthen Fists) no stand
-        // point avoids the wall, so leave it to predicted damage + the player's own anti-knockback.
-        if ((origin - center).Length() < bounds.Radius * 0.5f)
+        // near-centre origin (Dual Earthen Fists): no stand point beats the shove, leave it to
+        // predicted damage + the player's own anti-knockback.
+        if ((origin - center).Length() < bounds.Radius * 0.35f)
             return;
 
-        // (1) forbidden: any cell a 30y shove away from the origin would launch off the arena.
-        //     Binary (the pathfinder only checks sign) - value magnitude is irrelevant.
+        // forbid cells a 15y shove away from the origin would launch off the arena (binary - the
+        // pathfinder only checks the sign).
         hints.AddForbiddenZone(p =>
         {
             var landing = p != origin ? p + Distance * (p - origin).Normalized() : p;
@@ -143,12 +140,8 @@ static class E4SKnockback
             return (off - bounds.ClampToBounds(off)).LengthSq() > 0.01f ? -1f : 1f;
         }, resolveAt);
 
-        // (2) goal: strongly pull the AI to HUG the origin. The forbidden zone alone just says "not
-        //     there" and leaves a big flat safe region the AI won't commit to a spot within - the
-        //     replays showed it drifting near centre and eating the full shove. Weight 40 dominates
-        //     the ~1-2 uptime weight; goal zones only rasterize while the player's cell isn't already
-        //     in imminent danger, so this pulls early in the cast and safety takes over at the end.
-        hints.GoalZones.Add(hints.GoalProximity(origin, HugRadius, 40f));
+        // modest pull toward the origin (weight 8: above uptime's ~1-2, well below a real dodge).
+        hints.GoalZones.Add(hints.GoalProximity(origin, HugRadius, 8f));
     }
 }
 
