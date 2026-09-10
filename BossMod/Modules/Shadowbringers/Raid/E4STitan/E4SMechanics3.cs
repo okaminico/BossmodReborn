@@ -74,8 +74,17 @@ class Megalith(BossModule module) : Components.CastCounter(module, (uint)AID.Meg
     }
 }
 
-// ---- Weight of the World: single-target heavy damage marker - spread away from the marked player. ----
-class WeightOfTheWorld(BossModule module) : Components.SpreadFromIcon(module, (uint)IconID.WeightOfTheWorldSingle, (uint)AID.WeightOfTheWorld, 6, 5);
+// ---- Weight of the World: single-target heavy damage marker - spread away from the marked player.
+// Same self-targeted-resolve caveat as Pulse/Force of the Land (see E4SMechanics1) - time-expire so a
+// missed resolve can't leave the spread stuck on. ----
+class WeightOfTheWorld(BossModule module) : Components.SpreadFromIcon(module, (uint)IconID.WeightOfTheWorldSingle, (uint)AID.WeightOfTheWorld, 6, 5)
+{
+    public override void Update()
+    {
+        base.Update();
+        Spreads.RemoveAll(s => s.Activation.AddSeconds(1) < WorldState.CurrentTime);
+    }
+}
 
 // ---- Rock Throw / Granite Gaol: pairs 2 players via headmarker; if not resolved (killed?) within
 // the cast window one of them gets imprisoned. Structurally identical to Ex3Titan's GraniteGaol. ----

@@ -54,10 +54,31 @@ class SeismicWave(BossModule module) : Components.CastCounter(module, (uint)AID.
     }
 }
 
-// ---- headmarker spread / stack (icon-driven, resolved by the follow-up cast) ----
-// radii are best-effort defaults (typical for this era of savage content) - tune if they feel wrong in practice
-class PulseOfTheLand(BossModule module) : Components.SpreadFromIcon(module, (uint)IconID.PulseOfTheLandSpread, (uint)AID.PulseOfTheLand, 6, 5);
-class ForceOfTheLand(BossModule module) : Components.StackWithIcon(module, (uint)IconID.ForceOfTheLandStack, (uint)AID.ForceOfTheLand, 6, 5);
+// ---- headmarker spread / stack. Radii are best-effort defaults for this era of savage content.
+//
+// BUG FIX: the "resolve" abilities (Pulse 0x4106 / Force 0x4107) are cast SELF-TARGETED by the helper
+// (it drops the AOE where the marked player was), NOT on the marked player. Components.IconStackSpread
+// clears a spread/stack only when the resolve cast's MainTargetID matches the marked player - which
+// never happens here - so after the first Pulse of the Land the spread lingers forever and the AI
+// keeps forcing players apart for the rest of the fight (reported: two co-tanks permanently drift
+// apart). Both components therefore time-expire their entries ~1s past the icon's activation. ----
+class PulseOfTheLand(BossModule module) : Components.SpreadFromIcon(module, (uint)IconID.PulseOfTheLandSpread, (uint)AID.PulseOfTheLand, 6, 5)
+{
+    public override void Update()
+    {
+        base.Update();
+        Spreads.RemoveAll(s => s.Activation.AddSeconds(1) < WorldState.CurrentTime);
+    }
+}
+
+class ForceOfTheLand(BossModule module) : Components.StackWithIcon(module, (uint)IconID.ForceOfTheLandStack, (uint)AID.ForceOfTheLand, 6, 5)
+{
+    public override void Update()
+    {
+        base.Update();
+        Stacks.RemoveAll(s => s.Activation.AddSeconds(1) < WorldState.CurrentTime);
+    }
+}
 
 // ---- Weight of the Land: 1.8s boss telegraph (WeightOfTheLandVisual), then the helper drops ~6y
 // circle puddles on a 4x4 grid that go off after a 4.7s cast. Radius is a best-effort estimate
