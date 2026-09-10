@@ -74,15 +74,39 @@ class TectonicUplift(BossModule module) : Components.CastCounter(module, (uint)A
     }
 }
 
-class SeismicWave(BossModule module) : Components.CastCounter(module, (uint)AID.SeismicWave)
+// Seismic Wave (0x4110): Titan raidwide with a LINE-OF-SIGHT component - the Giant Rocks that Crumbling
+// Down drops block it. Replay sequence: Crumbling Down (0x410E) -> Giant Rocks spawn + do their own
+// landslides (0x410F, 2 staggered waves) -> ~4.5s later Seismic Wave casts from near Titan (3.7s), its
+// LocXZ = the wave origin. Standing in line of sight of that origin -> hit (replay: the off-tank ate it
+// 6x across the pull). Hide behind a rock relative to the origin. It overlaps the Bomb Boulder 3x3 grid
+// so the real safe spot is (rock shadow) minus (bomb cells) - BombBoulders handles the second half.
+class SeismicWave(BossModule module) : Components.CastLineOfSightAOE(module, (uint)AID.SeismicWave, 45f)
 {
+    public override ReadOnlySpan<Actor> BlockerActors() => CollectionsMarshal.AsSpan(((E4STitan)Module).GiantRocks);
+
+    public override void Update()
+    {
+        if (Casters.Count != 0 && BlockerActors().Length != 0)
+        {
+            Safezones.Clear();
+            Refresh();
+            AddSafezone(Module.CastFinishAt(Casters[0].CastInfo));
+        }
+    }
+
     public override void AddHints(int slot, Actor actor, TextHints hints)
-        => E4SNote.WhileCasting(Module, hints, Module.PrimaryActor, AID.SeismicWave, "Seismic Wave: raidwide - line-of-sight it behind a Giant Rock if one is up");
+    {
+        base.AddHints(slot, actor, hints); // "Hide behind obstacle!" when in line of sight
+        if (Casters.Count != 0 && BlockerActors().Length == 0)
+            hints.Add(Loc.T("Seismic Wave: raidwide - no Giant Rock up, just mitigate"), false);
+    }
 
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
     {
-        if (Module.PrimaryActor.CastInfo != null)
-            hints.AddPredictedDamage(Raid.WithSlot().Mask(), Module.CastFinishAt(Module.PrimaryActor.CastInfo));
+        base.AddAIHints(slot, actor, assignment, hints); // forbids everything outside a rock's shadow
+        // no rock to line-of-sight -> unavoidable in practice, let healers/AI prep mitigation
+        if (Casters.Count != 0 && BlockerActors().Length == 0)
+            hints.AddPredictedDamage(Raid.WithSlot().Mask(), Module.CastFinishAt(Casters[0].CastInfo));
     }
 }
 
