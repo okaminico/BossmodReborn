@@ -22,6 +22,6 @@
     "AcceptsFeedback": true,
     "DownloadLinkInstall": "https://github.com/okaminico/BossmodReborn/releases/download/v7.20.0.122/BossModReborn.zip",
     "DownloadLinkUpdate": "https://github.com/okaminico/BossmodReborn/releases/download/v7.20.0.122/BossModReborn.zip",
-    "Changelog": "E4S: 炸彈半徑 6 → 7(小岩石 graze 吃易傷)（2026-09-10）"
+    "Changelog": "E4S 泰坦:依大量實機 replay 大幅修正——場地改圓形(閃招不再墜崖)、擊退距離修正、炸彈半徑放大、斷層線/落石/邪土餘波閃避、相位結構重整、技能 ID 對照 cactbot 重標。此模組為 WIP,需把 BMR 設定的 Minimal maturity 調到 WIP。(2026-09-10)"
   }
 ]
