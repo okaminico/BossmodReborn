@@ -86,20 +86,48 @@ class ForceOfTheLand(BossModule module) : Components.StackWithIcon(module, (uint
 // fight (160 casts in the analysed replay) and was previously completely untelegraphed. ----
 class WeightOfTheLand(BossModule module) : Components.SimpleAOEs(module, (uint)AID.WeightOfTheLand, 6);
 
-// ---- Evil Earth (邪土): 3.8s boss telegraph, then a 3-STAGE EXPANDING-RING AOE from the marked
-// square(s) - huijiwiki: "每次扩大为上一轮的外圈" (each wave is the outer ring of the previous), i.e.
-// circle -> donut -> larger donut, so the intended dodge is to move inward toward the marked square
-// as it expands. This component only draws the FIRST stage (helper cast 0x410C, ~6y circle); the
-// expansion waves come through as Aftershock1/2 (0x410D / 0x41B5) which are not yet modelled. So the
-// AI will dodge the initial hit but may re-path into an expansion ring - a proper multi-stage
-// donut-sequence component (see A11Prishe KnuckleSandwich for the pattern) is the real fix. ----
+// ---- Evil Earth (邪土): 3.8s boss telegraph, then a multi-stage EXPANDING aftershock from the marked
+// squares (Aftershock1/2, 0x410D / 0x41B5, instant, cast from helpers sitting on the grid). Replay
+// analysis of every Evil Earth aftershock: the stages spread outward and ALWAYS finish on the arena
+// perimeter (~t+7s after the telegraph resolves). The intermediate broad stages hit ~14/16 grid cells
+// and can't be dodged without the per-square mark data, but the final perimeter stage always leaves
+// the centre 2x2 safe - so this schedules a donut forbidden zone to pull the AI to centre for that.
+// This component still draws the first helper circle (0x410C) too. ----
 class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.EvilEarthAOE, 6)
 {
+    private static readonly AOEShapeDonut _perimeter = new(9f, 26f);
+    private readonly List<(WPos, DateTime)> _rings = [];
+
+    public override ReadOnlySpan<AOEInstance> ActiveAOEs(int slot, Actor actor)
+    {
+        var span = base.ActiveAOEs(slot, actor);
+        if (_rings.Count == 0)
+            return span;
+        var all = new List<AOEInstance>(span.Length + _rings.Count);
+        all.AddRange(span);
+        foreach (var (c, act) in _rings)
+            all.Add(new(_perimeter, c, default, act));
+        return CollectionsMarshal.AsSpan(all);
+    }
+
+    public override void OnCastStarted(Actor caster, ActorCastInfo spell)
+    {
+        base.OnCastStarted(caster, spell);
+        if (spell.Action.ID == (uint)AID.EvilEarth) // 0x410B boss telegraph
+            _rings.Add((Module.Center, Module.CastFinishAt(spell).AddSeconds(6d)));
+    }
+
+    public override void Update()
+    {
+        base.Update();
+        _rings.RemoveAll(r => r.Item2.AddSeconds(2.5d) < WorldState.CurrentTime);
+    }
+
     public override void AddHints(int slot, Actor actor, TextHints hints)
     {
         base.AddHints(slot, actor, hints);
         if (Casters.Count == 0 && Module.PrimaryActor.CastInfo?.Action.ID == (uint)AID.EvilEarth)
-            hints.Add(Loc.T("Evil Earth - dodge the ground markers!"), false);
+            hints.Add(Loc.T("Evil Earth - dodge markers, then centre for the shockwave!"), false);
     }
 }
 

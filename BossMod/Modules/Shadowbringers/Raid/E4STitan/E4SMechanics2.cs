@@ -49,10 +49,12 @@ class MassiveLandslideFront(BossModule module) : Components.GenericKnockback(mod
 // Safe = the quadrant diagonals, away from both cross arms.
 class LandslideBackCorners(BossModule module) : Components.SimpleAOEs(module, (uint)AID.LandslideBackCorners, new AOEShapeCross(30f, 5f));
 
-// ---- Giant Rock landslide: the Giant Rock adds (OID 0x2992) each cast a ~6y circle landslide
-// (0x410F, 4.7s) scattered across the arena, alongside the boss's own Crumbling Down. Radius is a
-// best-effort estimate. verified (replay). ----
-class GiantRockLandslide(BossModule module) : Components.SimpleAOEs(module, (uint)AID.GiantRockLandslide, 6);
+// ---- Giant Rock landslide: the Giant Rock adds (OID 0x2992) each cast a landslide (0x410F, 4.7s,
+// self-targeted at the rock) scattered across the arena, alongside the boss's own Crumbling Down.
+// huijiwiki calls it a distance-falloff AOE, and the replay's damage values swing wide (0x02CC..0x26CC)
+// which confirms falloff - so r6 was clipping the AI for chip damage. Bumped to 10 (the rock also
+// doubles as LoS cover for the follow-up Seismic Wave, but that shelter mechanic isn't modelled). ----
+class GiantRockLandslide(BossModule module) : Components.SimpleAOEs(module, (uint)AID.GiantRockLandslide, 10f);
 
 // "Massive Landslide - Sides" (right/left simultaneous) - safe in front/back
 class MassiveLandslideSides(BossModule module) : Components.GenericAOEs(module, (uint)AID.MassiveLandslideSides)
