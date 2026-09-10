@@ -117,7 +117,7 @@ class EvilEarth(BossModule module) : Components.SimpleAOEs(module, (uint)AID.Evi
 static class E4SKnockback
 {
     public const float Distance = 15f;
-    public const float HugRadius = 8f;
+    public const float SafeRadius = 12f; // stay within this of the origin (the shove then lands in bounds)
 
     public static void AddHint(BossModule module, AIHints hints, WPos origin, DateTime resolveAt)
     {
@@ -131,17 +131,22 @@ static class E4SKnockback
         if ((origin - center).Length() < bounds.Radius * 0.35f)
             return;
 
-        // forbid cells a 15y shove away from the origin would launch off the arena (binary - the
-        // pathfinder only checks the sign).
+        // Forbidden = (further than SafeRadius from the origin) OR (a 15y shove away from the origin
+        // would land you off the arena). The safe set is a small lens hugging the origin on its
+        // centre-facing side - one clear target, so the AI commits and holds instead of drifting.
+        var r2 = SafeRadius * SafeRadius;
         hints.AddForbiddenZone(p =>
         {
-            var landing = p != origin ? p + Distance * (p - origin).Normalized() : p;
+            var delta = p - origin;
+            if (delta.LengthSq() > r2)
+                return -1f;
+            var landing = delta.LengthSq() > 0.01f ? p + Distance * delta.Normalized() : p;
             var off = landing - center;
             return (off - bounds.ClampToBounds(off)).LengthSq() > 0.01f ? -1f : 1f;
-        }, resolveAt);
+        }, resolveAt.AddSeconds(-1.5d) is var a && a > module.WorldState.CurrentTime ? a : module.WorldState.CurrentTime);
 
-        // modest pull toward the origin (weight 8: above uptime's ~1-2, well below a real dodge).
-        hints.GoalZones.Add(hints.GoalProximity(origin, HugRadius, 8f));
+        // extra pull toward the origin so within the lens the AI hugs it rather than skimming the edge.
+        hints.GoalZones.Add(hints.GoalProximity(origin, 8f, 15f));
     }
 }
 
