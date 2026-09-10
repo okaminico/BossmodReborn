@@ -168,15 +168,16 @@ class FaultLineFront(BossModule module) : Components.GenericAOEs(module)
     public override void Update() => _aoes.RemoveAll(a => a.Activation < WorldState.CurrentTime.AddSeconds(-0.5d));
 }
 
-// ---- Bomb Boulders: adds spawn on a fixed 3x3 grid (X/Z in {86,100,114}), each explodes via a 4.7s
-// BombBoulderAOE (0x410A) cast - verified (replay). Cactbot's own data says the safe-zone pattern
-// depends on the current phase ("landslide" = corners-then-cardinals or reverse; "armor" = hide behind
-// east/west half) - that phase-dependent branching isn't something a generic AOE component can express
-// well, so this just telegraphs each bomb's actual blast radius from its cast, which is the reliable
-// part. Radius 6 is a best-effort estimate. ----
+// ---- Bomb Boulders: adds spawn on the 3x3 grid (X/Z in {86,100,114}) and explode column-by-column
+// (or row/corner patterns) via a 4.7s BombBoulderAOE (0x410A) cast, ~1.5s between waves - verified
+// (replay). Damage is ~flat (0x55A9 vs 0x56F7), so it's a hard circle. r6 was letting the AI settle
+// in the 2y gap between two same-column bombs and eat a graze (r6.1 = vuln stack); r8 makes a casting
+// column a solid wall so the AI clears that X entirely, which the per-bomb resolve times already let
+// it sequence wave-by-wave. Not modelling cactbot's phase-specific "hide behind east/west" safe spot -
+// the reactive per-cast telegraph with a big-enough radius covers it. ----
 class BombBoulders(BossModule module) : Components.GenericAOEs(module)
 {
-    private static readonly AOEShapeCircle _shape = new(6);
+    private static readonly AOEShapeCircle _shape = new(7f);
     public override ReadOnlySpan<AOEInstance> ActiveAOEs(int slot, Actor actor)
     {
         var bombs = ((E4STitan)Module).Bombs;
