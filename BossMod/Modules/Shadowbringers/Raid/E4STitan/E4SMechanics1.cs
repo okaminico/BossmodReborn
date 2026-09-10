@@ -1,8 +1,22 @@
 namespace BossMod.Shadowbringers.Raid.E4STitan;
 
+// Small helper: show a one-line "what to do" note in the module hint bar while the given action is
+// being cast by a specific actor. Loc.T keys fall back to English if there is no translation.
+static class E4SNote
+{
+    public static void WhileCasting(BossModule module, BossComponent.TextHints hints, Actor? caster, AID aid, string text)
+    {
+        if (caster?.CastInfo?.Action.ID == (uint)aid)
+            hints.Add(Loc.T(text), false);
+    }
+}
+
 // ---- simple raidwides (no positioning requirement beyond "take the damage") ----
 class VoiceOfTheLand(BossModule module) : Components.CastCounter(module, (uint)AID.VoiceOfTheLand)
 {
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+        => E4SNote.WhileCasting(Module, hints, Module.PrimaryActor, AID.VoiceOfTheLand, "Voice of the Land: raidwide - use mitigation / heal through");
+
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
     {
         if (Module.PrimaryActor.CastInfo != null)
@@ -18,6 +32,9 @@ class Tumult(BossModule module) : Components.CastCounter(module, (uint)AID.Tumul
         if (spell.Action.ID == WatchedAction)
             _nextExpected = Module.CastFinishAt(spell);
     }
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+        => E4SNote.WhileCasting(Module, hints, ((E4STitan)Module).BossMaximum(), AID.Tumult, "Tumult: repeated raidwide x5 - mitigate");
+
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
     {
         if (_nextExpected > WorldState.CurrentTime)
@@ -27,6 +44,15 @@ class Tumult(BossModule module) : Components.CastCounter(module, (uint)AID.Tumul
 
 class EarthenFury(BossModule module) : Components.CastCounter(module, (uint)AID.EarthenFury)
 {
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+    {
+        var c = ((E4STitan)Module).BossMaximum()?.CastInfo;
+        if (c != null && (AID)c.Action.ID is AID.EarthenFury or AID.EarthenFuryBleed or AID.EarthenFuryEnrage)
+            hints.Add(Loc.T((AID)c.Action.ID == AID.EarthenFuryEnrage
+                ? "Earthen Fury: ENRAGE - kill or die"
+                : "Earthen Fury: big raidwide - mitigation + shields"), (AID)c.Action.ID == AID.EarthenFuryEnrage);
+    }
+
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
     {
         var c = ((E4STitan)Module).BossMaximum()?.CastInfo;
@@ -37,6 +63,9 @@ class EarthenFury(BossModule module) : Components.CastCounter(module, (uint)AID.
 
 class TectonicUplift(BossModule module) : Components.CastCounter(module, (uint)AID.TectonicUplift)
 {
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+        => E4SNote.WhileCasting(Module, hints, ((E4STitan)Module).BossMaximum(), AID.TectonicUplift, "Tectonic Uplift: terrain rises - jump from high ground to low, boulder blocks the centre");
+
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
     {
         var c = ((E4STitan)Module).BossMaximum()?.CastInfo;
@@ -47,6 +76,9 @@ class TectonicUplift(BossModule module) : Components.CastCounter(module, (uint)A
 
 class SeismicWave(BossModule module) : Components.CastCounter(module, (uint)AID.SeismicWave)
 {
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+        => E4SNote.WhileCasting(Module, hints, Module.PrimaryActor, AID.SeismicWave, "Seismic Wave: raidwide - line-of-sight it behind a Giant Rock if one is up");
+
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
     {
         if (Module.PrimaryActor.CastInfo != null)
@@ -69,6 +101,15 @@ class PulseOfTheLand(BossModule module) : Components.SpreadFromIcon(module, (uin
         base.Update();
         Spreads.RemoveAll(s => s.Activation.AddSeconds(1) < WorldState.CurrentTime);
     }
+
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+    {
+        base.AddHints(slot, actor, hints);
+        if (Spreads.Count != 0)
+            hints.Add(Loc.T(IsSpreadTarget(actor)
+                ? "Pulse of the Land (yellow marker on YOU): spread - get >6y from everyone"
+                : "Pulse of the Land: yellow spread markers out - stay clear of marked players"), false);
+    }
 }
 
 class ForceOfTheLand(BossModule module) : Components.StackWithIcon(module, (uint)IconID.ForceOfTheLandStack, (uint)AID.ForceOfTheLand, 6, 5)
@@ -78,13 +119,28 @@ class ForceOfTheLand(BossModule module) : Components.StackWithIcon(module, (uint
         base.Update();
         Stacks.RemoveAll(s => s.Activation.AddSeconds(1) < WorldState.CurrentTime);
     }
+
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+    {
+        base.AddHints(slot, actor, hints);
+        if (Stacks.Count != 0)
+            hints.Add(Loc.T("Force of the Land (orange marker): stack - everyone group on the marked player"), false);
+    }
 }
 
 // ---- Weight of the Land: 1.8s boss telegraph (WeightOfTheLandVisual), then the helper drops ~6y
 // circle puddles on a 4x4 grid that go off after a 4.7s cast. Radius is a best-effort estimate
 // (matches Ex3Titan's WeightOfTheLandAOE). This is the single highest-frequency mechanic in the
 // fight (160 casts in the analysed replay) and was previously completely untelegraphed. ----
-class WeightOfTheLand(BossModule module) : Components.SimpleAOEs(module, (uint)AID.WeightOfTheLand, 6);
+class WeightOfTheLand(BossModule module) : Components.SimpleAOEs(module, (uint)AID.WeightOfTheLand, 6)
+{
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+    {
+        base.AddHints(slot, actor, hints);
+        if (Casters.Count != 0 || Module.PrimaryActor.CastInfo?.Action.ID == (uint)AID.WeightOfTheLandVisual)
+            hints.Add(Loc.T("Weight of the Land: dodge the ground circles"), false);
+    }
+}
 
 // ---- Evil Earth (邪土): 3.8s boss telegraph, then a multi-stage EXPANDING aftershock from the marked
 // squares (Aftershock1/2, 0x410D / 0x41B5, instant, cast from helpers sitting on the grid). Replay
@@ -188,6 +244,12 @@ class Geocrush(BossModule module) : Components.GenericKnockback(module, (uint)AI
     public override ReadOnlySpan<Knockback> ActiveKnockbacks(int slot, Actor actor)
         => _resolveAt > WorldState.CurrentTime ? new Knockback[] { new(_origin, E4SKnockback.Distance, _resolveAt) } : [];
 
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+    {
+        if (_resolveAt > WorldState.CurrentTime)
+            hints.Add(Loc.T("Geocrush: raidwide + knockback (~15y away from where the boss jumped) - stack on that spot, mitigate"), false);
+    }
+
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
         => E4SKnockback.AddHint(Module, hints, _origin, _resolveAt);
 
@@ -208,6 +270,12 @@ class DualEarthenFists(BossModule module) : Components.GenericKnockback(module, 
     private DateTime _resolveAt;
     public override ReadOnlySpan<Knockback> ActiveKnockbacks(int slot, Actor actor)
         => _resolveAt > WorldState.CurrentTime ? new Knockback[] { new(_origin, E4SKnockback.Distance, _resolveAt) } : [];
+
+    public override void AddHints(int slot, Actor actor, TextHints hints)
+    {
+        if (_resolveAt > WorldState.CurrentTime)
+            hints.Add(Loc.T("Dual Earthen Fists: raidwide + knockback from the arena centre - use anti-knockback, mitigate"), false);
+    }
 
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
         => E4SKnockback.AddHint(Module, hints, _origin, _resolveAt);
