@@ -314,36 +314,21 @@ class DualEarthenFists(BossModule module) : Components.GenericKnockback(module, 
     }
 }
 
-// ---- Magnitude 5.0: "get under the boss" - donut safe zone hugging the boss hitbox, raidwide outside it.
-// Radius numbers are estimated (typical for this style of mechanic); verify in practice. ----
-class MagnitudeFive(BossModule module) : Components.CastCounter(module, (uint)AID.MagnitudeFive)
+// ---- Magnitude 5.0 (0x4121): "get under the boss" raidwide donut. Boss self-casts (2.7s), LocXZ =
+// boss position at cast (replay-confirmed, id 16673). Safe hole ~6y (replay: the melee-range MT was
+// never hit; the ranged co-tank ate it 6/11 times by standing out).
+//
+// BUG FIX (was: hand-rolled InvertedCircle forbidden zone gated on `NumCasts == 0 && PrimaryActor is
+// casting ANYTHING`). After an Orogenesis transition the module is rebuilt -> NumCasts resets to 0 ->
+// in Titan Maximum phase every unrelated Titan cast (Voice of the Land etc.) re-triggered a 4y
+// lock-to-boss zone, freezing the AI (e.g. during Granite Gaol). SimpleAOEs is cast-gated and
+// self-expiring so it can't misfire outside its own cast. ----
+class MagnitudeFive(BossModule module) : Components.SimpleAOEs(module, (uint)AID.MagnitudeFive, new AOEShapeDonut(6f, 40f))
 {
-    private const float _outerRadius = 15;
-    private const float _innerRadius = 4;
-
     public override void AddHints(int slot, Actor actor, TextHints hints)
     {
-        if (!actor.Position.InCircle(Module.PrimaryActor.Position, _outerRadius))
-            hints.Add(Loc.T("Move closer to the boss!"));
-        else if (!actor.Position.InCircle(Module.PrimaryActor.Position, _innerRadius))
-            hints.Add(Loc.T("Move closer to the boss!"), false);
-    }
-
-    public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
-    {
-        if (NumCasts == 0 && Module.PrimaryActor.CastInfo != null)
-        {
-            hints.AddForbiddenZone(ShapeDistance.InvertedCircle(Module.PrimaryActor.Position, _innerRadius), Module.CastFinishAt(Module.PrimaryActor.CastInfo));
-            hints.AddPredictedDamage(Raid.WithSlot().Mask(), Module.CastFinishAt(Module.PrimaryActor.CastInfo));
-        }
-    }
-
-    public override void DrawArenaBackground(int pcSlot, Actor pc)
-    {
-        if (Module.PrimaryActor.CastInfo?.Action.ID == (uint)AID.MagnitudeFive)
-        {
-            Arena.ZoneCircle(Module.PrimaryActor.Position, _outerRadius, Colors.AOE);
-            Arena.ZoneCircle(Module.PrimaryActor.Position, _innerRadius, Colors.SafeFromAOE);
-        }
+        base.AddHints(slot, actor, hints);
+        if (Casters.Count != 0 && !actor.Position.InCircle(Casters[0].Origin, 6f))
+            hints.Add(Loc.T("Magnitude 5.0: get under the boss!"), false);
     }
 }

@@ -26,9 +26,11 @@ class MassiveLandslideFront(BossModule module) : Components.GenericKnockback(mod
 
     public override void AddAIHints(int slot, Actor actor, PartyRolesConfig.Assignment assignment, AIHints hints)
     {
-        hints.AddPredictedDamage(Raid.WithSlot().Mask(), _resolveAt);
         if (_resolveAt > WorldState.CurrentTime)
+        {
+            hints.AddPredictedDamage(Raid.WithSlot().Mask(), _resolveAt);
             hints.AddForbiddenZone(ShapeDistance.InvertedCircle(_origin, 2), _resolveAt);
+        }
     }
 
     public override void OnCastStarted(Actor caster, ActorCastInfo spell)
